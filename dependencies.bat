@@ -1,3 +1,4 @@
+pip install numpy
 pip install Bio
 pip install torch
 pip install MDAnalysis

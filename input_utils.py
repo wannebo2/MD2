@@ -59,11 +59,11 @@ def getResidueInfo(residue):
 def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): #make a tree structure containing all the residues.
     maxlevels = maxlevels + strtDgt
     if residueIgnoreList in globals():
-        global residueIgnoreList
+        residueIgnoreList = globals()["residueIgnoreList"]
     else:
         residueIgnoreList = []
     if residueAcceptList in globals():
-        global residueAcceptList
+        residueAcceptList = globals()["residueAcceptList"]
     else:
         residueAcceptList = []
     Tree = {}
@@ -77,7 +77,7 @@ def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): 
             loc = Tree
             dgt = strtDgt
             while dgt<maxlevels: #shouldn't reach maxlevels most of the time, but just in case two residues have the same coordinates, maxlevels shouldn't be excessivley high
-                dgts = "#".join([for c in len(r["coords"]): str(round(r["coords"][c],dgt))])
+                dgts = "#".join([str(round(r["coords"][c],dgt)) for c in len(r["coords"])])
                 if not dgts in loc:
                     loc[dgts] = {"residueList":[r]}
                     break;
@@ -90,7 +90,7 @@ def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): 
                 else:
                     loc[dgts]["residueList"] += [r]
                     for r2 in loc[dgts]["residueList"]:
-                        dgts2 = "#".join([for c in len(r["coords"]): str(round(r["coords"][c],dgt+1))])
+                        dgts2 = "#".join([str(round(r["coords"][c],dgt+1)) for c in len(r["coords"])])
                         if dgts2 in loc[dgts]:
                             loc[dgts][dgts2]["residueList"] += [r2]
                         else:
@@ -98,7 +98,7 @@ def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): 
                     break;
                 dgt += 1
                 if dgt == maxlevels:
-                    dgts = "#".join([for c in len(r["coords"]): str(round(r["coords"][c],dgt))])
+                    dgts = "#".join([str(round(r["coords"][c],dgt)) for c in len(r["coords"])])
                     if dgts in loc:
                         loc[dgts]["residueList"] += [r]
                     else:
