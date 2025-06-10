@@ -28,7 +28,13 @@ def getResidueInfo(residue):
     residue.sort()
     atms = residue.get_atoms()
     o1 = atms[0]
-    o2 = atms[1]
+    o2 = atms[0]
+    o3 = atms[0]
+    if len(atms)>1:
+        o2 = atms[1]
+        o3 = atms[1]
+        if len(atms)>2:
+            o3 = atms[2]
     if "orientationAtomsByResidue" in globals():
         global orientationAtoms
         if name in orientationAtomsByResidue:
@@ -37,11 +43,18 @@ def getResidueInfo(residue):
                     o1 = z
                 if z.get_name() == orientationAtomsByResidue[name]["o2"]:
                     o2 = z
-    c1 = o1.get_coord()
-    c2 = o2.get_coord()
-    unitVec = general_utils.normDisp(c1,c2)
-    coords = general_utils.avg([c1,c2])
-    return {"resname":name,"ssegid":ID,"direction":unitVec,"coords":coords}
+                if z.get_name() == orientationAtomsByResidue[name]["o3"]:
+                    o3 = z
+    c1 = np.array(o1.get_coord())
+    c2 = np.array(o2.get_coord())
+    c3 = np.array(o3.get_coord())
+    unitVec = (c2-c1)#general_utils.normDisp(c1,c2)
+    unitVec = unitVec/(np.dot(unitVec,unitVec)+0.0001)
+    normalVec = c3-c1
+    normalVec = normalVec-(np.dot(unitVec,normalVec)*unitVec)
+    normlVec /= (np.dot(normalVec,normalVec)+0.0001)
+    coords = c1#general_utils.avg([c1,c2])
+    return {"resname":name,"ssegid":ID,"direction":unitVec,"rotation":normalVec,"coords":coords}
 
 def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): #make a tree structure containing all the residues.
     maxlevels = maxlevels + strtDgt
@@ -103,6 +116,8 @@ def getItemsWithinRadius(Tree,coord,radius): #get a list of residues within a gi
     for z in Tree:
         if "#" in z:
             dgts = z.split("#")
+            maxdispcoord = []
+            mindispcoord = []
             for d in dgts:
                 f = float(dgts)
                 if f-coord[c]>0:

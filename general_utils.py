@@ -1,4 +1,5 @@
 # these vector operations are probably somewhere in the Bio package's vector class, but I haven't found the docs for that yet
+#nevermind, I'm just using going to convert everything to np arrays instead of using this stuff.
 def normDisp(a,b):
     return norm(lin(a,b,-1))
 def lin(a,b,c=1):
@@ -34,5 +35,5 @@ def avg(vecs):
         return []
     return lin(vecsum(vecs),None,1/len(vecs))
 def euclidSqr(a,b):
-    v = lin(a,b,-1)
-    return dot(v,v)
+    amb = np.array(a)-np.array(b)
+    return np.dot(amb,amb)
