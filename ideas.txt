@@ -1,0 +1,87 @@
+This document is perhaps rather ambitious and incoherent at the moment, but right now here are my thoughts on the model architecture:
+
+
+What are the goals for the model?
+- much more efficient than MD
+- accurate at the scale(s) it operates at
+  - accurate for what metrics? generating precisely the same trajectory from the same initial state seems both difficult and unnecessary. 
+  - it would be nice (but not necessary) to preserve time-dependent processes
+- able to be trained on small and short simulations and then operate on larger ones
+  - it would be awesome if the timestep could be chosen at generation time, and if the model output could be used to bootstrap the training data for longer times
+- able to generalize to
+  - new DNA sequences
+  - new proteins
+  - new thermodynamic ensembles??? (ex: different salinities?)
+
+
+Needs:
+- must be trainable on the hardware we have access to in a reasonable time
+- must be accurate enough to be useful
+- must be faster than MD
+- must be able to simulate at least 5 bp long dna sequences in the vicinity of small stationary proteins
+- model output must be translationally/rotationally equivariant
+
+Wants:
+- scalability in all forms
+- stability over long timescales
+- able to simulate both single and double stranded dna
+- accurately capture long-range (electrostatic) interactions
+- accurate transition paths/probabilities
+- able to run trained model on my laptop
+
+Nice to haves:
+- able to output a perhaps less accurate simulation with a larger timestep, and train this from smaller timestep
+- able to use additional data without retraining (attention over dataset, it would be SO COOL and could really help with generalization, but the model might end up bigger and/or slower if we do this.)
+- able to simulate at different coarse-grained resolutions (stretch goal, and I don't really see how we would do this at the moment without significantly increasing the number of parameters)
+- able to perform other tasks, such as interpolating and molecule design (would go well with a diffusion model, see "Generative Modeling of Molecular Dynamics Trajectories")
+- able to handle unseen compounds to some extent, or be able to be fine-tuned to handle a new compound without everything breaking.
+- able to simulate long sequences of DNA in funky configurations (ex: part of origami construct)
+- able to simulate the protein as well (probably not something we should focus on, but it would be nice)
+- able to be trained on my laptop (without compromising efficiency)? (stretch goal) (perhaps we could train littler versions like they do with LLMs)
+
+
+Information flow (very much subject to change):
+1. Take PBDs and DCDs, get residue orientations and positions
+2. Have each residue assotiated with a learnable embedding (intialize to one-hot plus random component?), which the network sees, and concatenate equivariant positional information to each embedding
+3. Train transformer-based VAE on induvidual frames (or small sets of nearby frames??? it is simpler to just take in one frame, but then velocity information may need to be included seperately) of simulation data to
+for N number of layers:
+ - for each residue, take in residue embedding, along with (concat? or add?) embeddings and appropriatley transformed positions from nearby residues, and put them through standard transformer layer
+ - Compute (weighted) average embeddings for groups of nearby residues (location w/ random offset, and output this to the next layer
+Then, decode via using a simularly structured transformer to compute embeddings at some (partially randomized, at least for training) points in space.
+Should output have zero/null embeddings where particles aren't? or should it be a continuous surface?
+It might be easier to try to reconstruct a linear interlopation of nearby molocule identies as opposed to the discrete molocules themselves, at least with this setup.
+
+The layers can probably be trained one at a time, starting with 1 input layer-1 output layer, then 2 input-layers, 1 output layer, ect. Should there only be one output layer? I don't feel like there needs to be a 1:1 correspondence between input and output layers, but being able to decompress the latent space iteratively like that could allow the multiple levels of corse-graining mentioned in "Nice to haves"
+
+4. Once the frame-wise VAE is trained, a transformer diffusion model can be trained. If trying to do multi-scale thing that is seeming more and more plausible, then it could make sense to first train it to denoise only the most coarse layer, to learn the general 'shape' of the output, and then iterativley add the lower layers, and corresponding input/output neurons to the network. I think it makes most sense just to have one network denoising the entire (multi-level) output space.
+
+Alternatley, it could make sense to train it instead on smaller portions of the input space 1st, like how the VAE was trained (and use smaller timesteps, too), and then move up to the more coarse-grained representations.
+
+Model inputs:
+
+A noisy version of the a few random VAE compressed frames from the DCD trajectory (along with relative time information),
+potentially along with a random subset of KV pairs from past data instances (not the same one that it is being trained on)
+
+Model outputs:
+
+A less noisy version of the few random VAE compressed frames from the DCD trajectory,
+potentially along with a new KV pair produced from this data instance
+
+In between:
+
+Just a basic equivariant transformer, I think.
+
+Notes:
+- If using past data KV pairs, should be a separate 'module' in the network, so that the model can operate without them, probably? Perhaps this module could be 'tacked on' after initial training if we decide we do want it. Old pairs must be forgotten as the model is trained, because the KV encoding will change and so training the model to be able to read old memories means it will have trouble learning to embed new ones. Probably only a random subset of KV pairs should be provided, so that the model knows how to operate when it doesn't have well-covered past experiences with the structures. Also, it is critical to make sure that memories from the past training on a trajectory are not avalible when training on that same trajectory. If using a large database of past experiences, then some sort of hashing mechanisim will be needed to efficiently recall the KV pairs actually relavent to the query.
+
+- The noise should not be applied to all frames equally, because the primary goal is to predict future frames given past ones, so a significant amount of the training should be devoted to very noisy future frames paired with much less noisy past frames. Altenatley, some of the training could be spent only denoising part of the space, if only part has noise added in the first place. Also, different compression levels could be noised different amounts, or some just not provided, so that the model can be trained to operate on ' 
+
+- The model should be trained with varying numbers of frames, and once short-time predictions are accurate, the model can be trained to make longer predictions by having predict a long trajectory by having it hallucinate a trajectory composed of many small frames, and then training it to denoise the frames at the very end of the long sequence given only the frames closer to the beginning of the sequence.
+	- If the model is not accurate enough, this could lead to it reinforcing its inaccuracies, so this would be used to augment real data as opposed to replacing it.
+
+- Different spatial sizes of frames should also be used, and this should work fine because the transformer architecture works just fine when regions of data are simply not present, but this data should come from differently-sized simulations because otherwise when making predictions for small areas, the model would be liable to hallucinate long range interactions from nonexistant sources because it would think that it is only predicting a small bit of a larger section of data.
+
+- If we want to try to make it work with a variety of compounds (using attention over KV pairs from other (sufficiently similar) simulations using the unseen compounds to predict how the compounds act), a variety of compounds will probably need to be present in the data. This could be hard, so perhaps we could just run simulations with fictitious, randomized compounds that are just carbon chains/loops with random atoms attatched. I'm sure this isn't ideal, real compounds are probably better. Also, assuming we are using learned embeddings, before training on an unseen compound, its embedding would have to be learned by backpropogating through the 1st level at least of the VAE.
+
+- wait... should the learned embeddings associated with the residues be learned over induvidual frames??? that does not seem right, because the embedding should capture how the residue behaves... though the frames will be randomly sampled from simulation data, so even if time is not used when learning the data, the embedding would represent the contexts that the residue statistically tends to show up in. 
+

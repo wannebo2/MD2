@@ -33,4 +33,6 @@ def avg(vecs):
     if len(vecs) == 0:
         return []
     return lin(vecsum(vecs),None,1/len(vecs))
-
+def euclidSqr(a,b):
+    v = lin(a,b,-1)
+    return dot(v,v)
