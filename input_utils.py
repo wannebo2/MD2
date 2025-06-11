@@ -1,6 +1,5 @@
 # todo: basically everything
 # Important:
-#  - figure out how to load and decode DCD files
 #  - test input functions
 #  - add input/output visualization
 #  - figure out what the model is going to be and implement it in pytorch

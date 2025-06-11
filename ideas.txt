@@ -91,3 +91,16 @@ It seems like a nice idea to use a SOM (self-organizing map) instead of a VAE, m
 But attention heads normally use Q, K and V dimensions as high as 512, which is a *really* excessive number of dimensions for an SOM- I feel quite confident in saying a 512 dimensional SOM would not behave normally in any respect. That being said, artificial neurons have a tendency to be a little redundant in what they learn, a collection of SOMs could be used to the same effect as a collection of neurons, but that would not really be a beautiful solution, and I'm not sure how you would make sure the SOM outputs are decorrelated... high dimensionality and random initialization might take care of that. 
 It is technically possible to use SOMs as attention heads, by assigning the value vectors to each point. I like that idea.
 Not sure where the value vectors come from then, but I like the idea.
+
+
+- I think that we should train a confidence module for the following reasons:
+	- When training the model on longer timesteps from trajectories it has hallucinated, only high-quality data should be used
+	- Also, for longer timesteps, it is infeasible for the model to predict the exact state found from MD (or bootstrapping) from extremely noisy inputs, because the dynamics are chaotic, and so there are multiple divergent trajectories possible from what are essentially the same initial state. A confidence model could be used to rate the output, and that can be used as a term in the loss function, so that the model still gets some credit for trajectories that are plausible but not exactly the one the MD simulation found. On that note, after a very long timestep is generated, an interpolation should probably be predicted, and then the confidence module should be used to evaluate the shorter jumps, and the error should be summed or something so that the model is trained on the cumulative error, because the confidence model is unlikely to be accurate for long timesteps for the same reason that the model is unlikely to be accurate for long timesteps. Then, the confidence model can be bootstrapped as well, so that both the confidence module and the prediction model learn to be accurate for progressively larger timesteps.
+	- MD data is very computationally expensive, so an accurate prediction of the loss without a corresponding MD trajectory would be great.
+	- It shouldn't be that expensive to train, given that it can use the same data, latent space, and such as the original model, and it only has to predict a single number.
+- should we train a meta-confidence model???
+	- it would be funny
+	- if something's going wrong, it could help determine whether the confidence module is failing
+- should we train a meta-meta confidence model??
+	- it would be funny
+	- probably not.
