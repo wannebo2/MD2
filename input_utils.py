@@ -10,6 +10,7 @@
 import Bio.PDB
 from MDAnalysis.lib.formats.libdcd import DCDFile
 import general_utils
+import copy
 def loadPDB(filename,ID="0"):
     if not filename.endswith(".pdb"):
         filename += ".pdb"
@@ -20,6 +21,40 @@ def loadPDB(filename,ID="0"):
     z = Bio.PDB.PDBParser.PDBParser()
     out = z.get_structure(ID,filename)
     del z
+    return out
+
+def loadDCD(filename,desiredSteps,pdb,timeConstant = 48.88821,tolerance = 0.0001):
+    if not filename.endswith(".pdb"):
+        filename += ".pdb"
+    if "workingDirectory" in globals():
+        global workingDirectory
+        if (not filename.beginswith(workingDirectory)):
+            filename = workingdirectory+filename
+    z = DCDFile(filename)
+    timestep = z.header['delta']*z.header['nsavc']*timeConstant
+    out = []
+    frame0 = z.tell()
+    rlist = []
+    for res in pdb.get_residues():
+        r = getResidueInfo(res)
+        for c in range(len(frame0.x)):
+            if sum(abs(frame0.x[c]-r["coords"]))<tolerance:
+                r["assigned atom"] = c
+                break;
+        if not "assigned atom" in r:
+            print("Error: atom could not be matched to residue "+r["resname"]+" "+r["ssegid"]+"!")
+        else:
+            rlist.append(r)
+    for s in desiredSteps:
+        z.seek(round(s/timestep))
+        frame = z.tell()
+        rcops = []
+        for r in rlist:
+            rcop = copy.copy(r)
+            rcop["coords"] = frame.x[r["assigned atom"]]
+            rcops.append(rcop)
+        out += [{"time":s,"coord tree":buildSpatialTree(rcops),"residue list":rcops}]
+    z.close()
     return out
 
 def getResidueInfo(residue):
@@ -68,12 +103,11 @@ def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): 
         residueAcceptList = []
     Tree = {}
     for res in residueList:
-        if res.get_resname() in residueIgnoreList:
+        if res["resname"] in residueIgnoreList:
             pass
-        elif (len(residueAcceptList)>0) and not res.get_resname() in residueAcceptList:
+        elif (len(residueAcceptList)>0) and not res["resname"] in residueAcceptList:
             pass
         else:
-            r = getResidueInfo(res)
             loc = Tree
             dgt = strtDgt
             while dgt<maxlevels: #shouldn't reach maxlevels most of the time, but just in case two residues have the same coordinates, maxlevels shouldn't be excessivley high
