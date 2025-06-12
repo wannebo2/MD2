@@ -1,0 +1,91 @@
+#todo:
+#Important:
+# - write layers to be used for VAE and primary model
+# - write model classes
+# - test everything
+
+#This file will contain the models and all their parts
+
+
+import torch
+from torch import nn
+#for how layers work, see the pytorch tutorial https://docs.pytorch.org/tutorials/beginner/basics/buildmodel_tutorial.html
+#global datatype should be set if desired. 
+class MonarchLayer(nn.Module):
+    # structured version of a dense layer
+    # See https://arxiv.org/abs/2204.00595 for why
+    def __init__(self,m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 0.5): #input is m*b, output is p*q, there are probably some numbers that run best on GPUs, but I do not know what those numbers are.
+        # the number of parameters is pb(m+q)
+        # in the original paper, m = b = p = q = sqrt(n), so has 2sqrt(n)*n parameters
+        # for simular performance with dissimilar input/output sizes, I bet m = b and p = q is the way to go
+        # everything should probably be powers of two.
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        # reshape : (mb) -> (m,1,b)
+        # P1 : (m,1,b) -> (b,1,m)
+        # L : (b,1,m)x(b,m,p) -> (b,1,p)
+        # P2 : (b,1,p) -> (p,1,b)
+        # R : (p,1,b)x(p,b,q) -> (p,1,q)
+        # reshape : (p,1,q) -> (pq)
+        self.m = m
+        self.b = b
+        self.p = p
+        self.q = q
+        self.dtype = dtype
+        self.L = initfactor*(torch.rand((b,m,p))-1)
+        self.R = initfactor*(torch.rand((p,b,q))-1)
+        self.reshape_input = reshape_input
+        self.reshape_output = reshape_output
+    def forward(data):
+        if self.reshape_input:
+            data = torch.reshape(data,(self.m,1,self.b))
+        data = torch.transpose(data,0,2)
+        data = torch.bmm(data,self.L)
+        data = torch.transpose(data,0,2)
+        data = torch.bmm(data,self.R)
+        if self.reshape_output:
+            data = torch.reshape(data,(self.p*self.q))
+        return data
+
+class MonarchTransformer(nn.Module): #at the moment, I am going to design it to concatenate position vectors in weird places because that's how I feel like it should work. We should consider variations perhaps.
+    # designed to be used with monarch layers without reshaping.
+    
+    def __init__(self,m,b,heads,qkdim,vdim,posdim): #input is in shape of (m,b)
+        super().__init__()
+        self.m = m
+        self.b = b
+        self.p = heads
+        self.heads = heads
+        self.qkdim = qkdim
+        self.sqqk = pow(qkdim,0.5)
+        self.vdim = vdim
+        self.posdim = posdim
+        self.Qlayer = MonarchLayer(self.m,self.b,self.qkdim+self.posdim,self.heads,reshape_output = False,reshape_input = False)
+        self.KVlayer = MonarchLayer(self.m,self.b,1,self.qkdim+self.vdim,reshape_output = False,reshape_input = False)
+        self.acti = nn.LeakyReLu(0.1)
+        self.attentionActi = nn.Softmax(dim=1) #I am not sure the dimension is right... will have to double-check that.
+    def forward(self,data,Ks,Vs):
+        #Ks is of shape (N,qkdim+posdim)
+        #Vs is of shape (N,vdim)
+        
+        #data = nn.functional.normalize(data) #nvrmnd, putting normalization in model instead of layer
+        
+        #Ks is a matrix of the shape (N,qkdim), Vs is a matrix of the shape (N,vdim)
+        # (m,1,b) -> (qkdim+posdim,heads)
+        Q = self.acti(self.Qlayer(data))
+        Q = torch.reshape(Q,(self.qkdim+self.posdim,self.heads))
+        # (m,1,b) -> (qkdim) and (vdim)
+        KV = self.acti(self.KVlayer(data))
+        KV = torch.reshape(KV,(self.qkdim+self.vdim))
+        KV = torch.split(KV,[self.qkdim,self.vdim])
+        # (N,qkdim+posdim)x(qkdim+posdim,heads) ->(N,heads)
+        QK = self.attentionActi(torch.mm(Ks,Q))
+        # (N,heads) -> (heads,N)
+        KQ = torch.transpose(QK,0,1)
+        # (heads,N)x(N,vdim) -> (heads,vdim)
+        Result = torch.mm(KQ,Vs)
+        #Returns (result of Q), (K),(V)
+        # (heads,vdim), (qkdim), (vdim)
+        return Result,KV[0],KV[1]
+        

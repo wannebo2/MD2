@@ -2,10 +2,11 @@
 # Important:
 #  - test input functions
 #  - add input/output visualization
-#  - figure out what the model is going to be and implement it in pytorch
-#  - figure out how to talk to vmd/namd2 to automatically run the simulations that would be most useful to train on
 # Later:
 #  - make spatial tree more efficient (lower number base)
+
+
+#This file is a set of functions meant to take frames from NAMD-generated MD trajectories, and load them into a tree so that they can be handled somewhat efficiently by the rest of the code.
 import Bio.PDB
 from MDAnalysis.lib.formats.libdcd import DCDFile
 import general_utils
