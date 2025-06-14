@@ -48,9 +48,10 @@ class MonarchLayer(nn.Module):
             data = torch.reshape(data,(self.p*self.q))
         return data
 
-class MonarchTransformer(nn.Module): #at the moment, I am going to design it to concatenate position vectors in weird places because that's how I feel like it should work. We should consider variations perhaps.
+class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
+    # position embeddings will be delt with somewhere else.
     # designed to be used with monarch layers without reshaping.
-    
+    # If training is unstable, it is probably because of something wrong in here
     def __init__(self,m,b,heads,qkdim,vdim,posdim): #input is in shape of (m,b)
         super().__init__()
         self.m = m
@@ -88,4 +89,18 @@ class MonarchTransformer(nn.Module): #at the moment, I am going to design it to 
         #Returns (result of Q), (K),(V)
         # (heads,vdim), (qkdim), (vdim)
         return Result,KV[0],KV[1]
+        
+class Equivariant_Module(nn.Module):
+    #Contains a monarch transformer and a feed-forward network, and performs the appropriate coordinate transformations on the positional embeddings.
+    #need to figure out exactly what the transformation is.
+    def __init__(self,inp_embed_m,inp_embed_b,oup_embed_p,oup_embed_q,kqdim,posdim):
+        self.inp_embed_m = inp_embed_m
+        self.inp_embed_b = inp_embed_b
+        self.oup_embed_p = inp_embed_p
+        self.oup_embed_q = oup_embed_q
+        self.kqdim = kqdim
+        self.posdim = posdim
+        self.Transformer = MonarchTransformer(inp_embed_m,inp_embed_b,oup_embed_p,kqdim,oup_embed_q,posdim)
+        self.FF = MonarchLayer(inp_embed_m,inp_embed_b,oup_embed_p,oup_embed_q,reshape_output = False,reshape_input = False)
+    def forward(locs,tree):
         

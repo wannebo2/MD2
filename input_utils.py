@@ -10,6 +10,7 @@
 import Bio.PDB
 from MDAnalysis.lib.formats.libdcd import DCDFile
 import general_utils
+import torch
 import copy
 def loadPDB(filename,ID="0"):
     if not filename.endswith(".pdb"):
@@ -57,7 +58,7 @@ def loadDCD(filename,desiredSteps,pdb,timeConstant = 48.88821,tolerance = 0.0001
     z.close()
     return out
 
-def getResidueInfo(residue):
+def getResidueInfo(residue,pvec = [],scales = [0.3,):
     name = residue.get_resname()
     ID = residue.get_segid()
     residue.sort()
@@ -89,7 +90,13 @@ def getResidueInfo(residue):
     normalVec = normalVec-(np.dot(unitVec,normalVec)*unitVec)
     normlVec /= (np.dot(normalVec,normalVec)+0.0001)
     coords = c1#general_utils.avg([c1,c2])
-    return {"resname":name,"ssegid":ID,"direction":unitVec,"rotation":normalVec,"coords":coords}
+    posembedding = makeEmbedding(coords,torch.flatten([normalVec,unitVec]),scales,rotscales)
+    return {"resname":name,"ssegid":ID,"direction":unitVec,"rotation":normalVec,"coords":coords,"posembedding":posembedding}
+
+def makeEmbedding(coords,rots,scales,rotscales):
+    scaled = torch.outer(coords,scales)
+    rscaled = torch.outer(rots,rotscales)
+    return torch.flatten([torch.sin(scaled),torch.cos(scaled),torch.sin(rscaled),torch.cos(rscaled)])
 
 def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): #make a tree structure containing all the residues.
     maxlevels = maxlevels + strtDgt
