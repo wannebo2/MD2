@@ -1,5 +1,32 @@
 This document is perhaps rather ambitious and incoherent at the moment, but right now here are my thoughts on the model architecture:
 
+Architecture plan, V2 (6-16-2025)
+
+Current goals:
+- Simulate DNA - protein interactions
+- At an atomic level, and in different solutions (with different small molecules present, and at different temperatures)
+- Be stable and accurate (with the correct probability distribution, not specific trajectory) for large timescales
+- Be generalizable to systems significantly larger than what it is trained on
+- Be able to take in bonding information (topology), and the prediction should maintain proper topology
+- Be able to reference a database of known trajectories to obtain a more accurate prediction
+- Produce a confidence estimate (train model to predict it's loss as well)
+
+Plan:
+- Use linear-time transformer variant directly on atoms, with atomic embedding (just one-hot?), and relative positions, so that it is both scalable and accurate
+- Use atomic relative position/rotation embeddings, with the "direction" the atom is facing being the average bond vector? (also use relative temporal embedding)
+- Distinguish between bonded and non-bonded atoms by either having a bondedness embedding concatenated like the position embeddings, or having some attention heads that only attend to bonded, or non bonded atoms. I like the bondedness embedding best currently.
+- Use performer transformer, possibly with learned features instead of random ones (I need to examine that architecture some more)
+- Have an attention layer that attends to hidden layer embeddings from other examples, and make sure to backpropagate gradient through that attention module as well
+- Use the monarch layer where applicable (reduces parameter count and training time), and 8-bit Galore training (reduces training memory usage (and perhaps training time? I'll have to revisit the paper)), to try to make things as efficient as possible
+- Attend to all given frames to diffuse atom coordinates (but not bondedness) in a future frame
+- Noise should be fairly sensible (rigid bonds should not be stretched, but noise also must not introduce bias)
+- Train on mostly DNA/Protien systems, but throw some other systems in the training set too, because there should be plenty of other MD data avalible, and it could help with generalization, even within DNA/protein systems
+- Train the same model to predict confidence, and use bootstraping procedures described below to train the model beyond the MD dataset
+- When training via confidence, the model being trained will need to specifically be trained to predict the same confidence as previous versions of the model, to avoid the confidence scores being effected by 'catasrophic forgetting'
+
+
+
+V1 below (V2 should be much simpler than this (and therefore easier to implement and probably more likley to work), and probably faster too)
 
 What are the goals for the model?
 - much more efficient than MD
