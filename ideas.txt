@@ -23,6 +23,7 @@ Plan:
 - Train on mostly DNA/Protien systems, but throw some other systems in the training set too, because there should be plenty of other MD data avalible, and it could help with generalization, even within DNA/protein systems
 - Train the same model to predict confidence, and use bootstraping procedures described below to train the model beyond the MD dataset
 - When training via confidence, the model being trained will need to specifically be trained to predict the same confidence as previous versions of the model, to avoid the confidence scores being effected by 'catasrophic forgetting'
+- If we run into issues with the confidence system above, then perhaps it should be moved to it's own model
 
 
 

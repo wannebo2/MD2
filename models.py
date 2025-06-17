@@ -1,11 +1,13 @@
-#todo:
-#Important:
-# - write layers to be used for VAE and primary model
-# - write model classes
-# - test everything
-
 #This file will contain the models and all their parts
 
+#TODO:
+# - Decide between Performer and Reformer linear-ish transformers
+# - Implement chosen linear-ish transformer
+# - figure out how to use 8-bit Galore
+# - write training (and testing) pipeline
+# - add visualization
+# - train and debug!
+# - if we need more data, figure out how to talk to NAMD/write program to automatically generate relavant simulations
 
 import torch
 from torch import nn
