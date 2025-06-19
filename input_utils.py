@@ -9,15 +9,16 @@ from MDAnalysis.lib.formats.libdcd import DCDFile
 import general_utils
 import torch
 import copy
+import numpy as np
 import os
 def loadPDB(filename,ID="0"):
     if not filename.endswith(".pdb"):
         filename += ".pdb"
     if "workingDirectory" in globals():
         global workingDirectory
-        if (not filename.beginswith(workingDirectory)):
-            filename = workingdirectory+filename
-    z = Bio.PDB.PDBParser.PDBParser()
+        if (not workingDirectory in filename):
+            filename = workingDirectory+filename
+    z = Bio.PDB.PDBParser()
     out = z.get_structure(ID,filename)
     del z
     return out
@@ -25,8 +26,8 @@ def loadPDB(filename,ID="0"):
 def loadPSF(filename):
     if "workingDirectory" in globals():
         global workingDirectory
-        if (not filename.beginswith(workingDirectory)):
-            filename = workingdirectory+filename
+        if (not workingDirectory in filename):
+            filename = workingDirectory+filename
     f = open(filename,mode = "r")
     z = f.readlines()
     Bonds = {}
@@ -48,41 +49,15 @@ def loadPSF(filename):
         elif "!NBOND" in line:
             reading = True
     return Bonds
-def loadDCDres(filename,desiredSteps,pdb,timeConstant = 48.88821,tolerance = 0.0001):
-    if not filename.endswith(".pdb"):
-        filename += ".pdb"
-    if "workingDirectory" in globals():
-        global workingDirectory
-        if (not filename.beginswith(workingDirectory)):
-            filename = workingdirectory+filename
-    z = DCDFile(filename)
-    timestep = z.header['delta']*z.header['nsavc']*timeConstant
-    out = []
-    frame0 = z.tell()
-    rlist = []
-    for res in pdb.get_residues():
-        r = getResidueInfo(res)
-        for c in range(len(frame0.x)):
-            if sum(abs(frame0.x[c]-r["coords"]))<tolerance:
-                r["assigned atom"] = c
-                break;
-        if not "assigned atom" in r:
-            print("Error: atom could not be matched to residue "+r["resname"]+" "+r["ssegid"]+"!")
-        else:
-            rlist.append(r)
-    for s in desiredSteps:
-        z.seek(round(s/timestep))
-        frame = z.tell()
-        rcops = []
-        for r in rlist:
-            rcop = copy.copy(r)
-            rcop["coords"] = frame.x[r["assigned atom"]]
-            rcops.append(rcop)
-        out += [{"time":s,"coord tree":buildSpatialTree(rcops),"residue list":rcops}]
-    z.close()
-    return out
+
 
 def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 0.0001):
+    global AtomWeights
+    global AtomEmbeddings
+    global tempoScales
+    global posScales
+    global AtomEmbeddingSize
+    global rotScales
     if not filename.endswith(".pdb"):
         filename += ".pdb"
     if "workingDirectory" in globals():
@@ -91,7 +66,6 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
             filename = workingdirectory+filename
     z = DCDFile(filename)
     timestep = z.header['delta']*z.header['nsavc']*timeConstant
-    out = []
     frame0 = z.tell()
     DCDtoPDBmap = {}
     PDBtoDCDmap = {}
@@ -105,11 +79,13 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
                 PDBtoDCDmap[atm.get_id()] = c
                 break;
         if not atm in PDBtoDCDmap:
-            print("Error: atom could not be found in DCD file "+atm.get_name()+" "+atm.get_id())
+            print("Error: atom could not be found in DCD file. "+atm.get_name()+" "+atm.get_id())
         else:
             PDBsById[atm.get_id()] = atm
             atmList.append(atm)
     print("loading selected frames...")
+    aEmbeds = []
+    pEmbeds = []
     for s in desiredSteps:
         z.seek(round(s/timestep))
         frame = z.tell()
@@ -118,89 +94,32 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
             for bondedAtm in bonds[atm.get_id()]:
                 coord2 = frame.x[PDBtoDCDmap[bondedAtm]]
                 rotvec += (coords-coord2)
-            rotvec /= np.dot(dispvec,dispvec)+0.001
+                if not PDBsById[bondedAtm].get_name() in AtomWeights:
+                    if PDBsById[bondedAtm].get_name()[0] in AtomWeights:
+                        AtomWeights[PDBsById[bondedAtm].get_name()] = AtomWeights[PDBsById[bondedAtm].get_name()[0]]
+                    else:
+                        AtomWeights[PDBsById[bondedAtm].get_name()] = 1
+                rotvec2 += AtomWeights[PDBsById[bondedAtm].get_name()]*(coords-coord2) #rot2 is for the computing a normal vector for the rotation (from a weighted sum of bond directions), because we'll need that too.
+            rotvec /= np.dot(rotvec,rotvec)+0.00001
+            rotvec2 -= np.dot(rotvec2,rotvec)*rotvec
+            rotvec2 /= np.dot(rotvec2,rotvec2)+0.00001
+            rotvec3 = np.ones(rotvec.shape)
+            rotvec3 -= np.dot(rotvec3,rotvec)*rotvec
+            rotvec3 -= np.dot(rotvec3,rotvec2)*rotvec2
+            posEmbed = makeEmbedding([s,coords,rotvec,rotvec2,rotvec3],[tempoScales,posScales,rotScales,rotScales,rotScales])
+            if not atm.get_name() in AtomEmbeddings:
+                if atm.get_name()[0] in AtomEmbeddings:
+                    AtomEmbeddings[atm.get_name()] = AtomEmbeddings[atm.get_name()[0]]
+                else:
+                    AtomEmbeddings[atm.get_name()] = np.random.random(AtomEmbeddingSize)
+            atmEmbed = AtomEmbeddings[atm.get_name()]
+            aEmbeds.append(atmEmbed)
+            pEmbeds.append(posEmbed)
             
     z.close()
-    return out
+    return aEmbeds,pEmbeds
 
-def CordToAdress(cds,bound = 1000,neg_bound = 0,dgtLen = 8):
-    out = []
-    for cd in cds:
-        out.append(str((cd+neg_bound)/bound))
-        for n in range(10):
-            out[-1] = out[-1].replace(str(n),(("Z"*(4-len(str(bin(n)[2:]))))+str(bin(n)[2:])).replace("0","Z").replace("1","O"))
-        out[-1] = out[-1][5:]
-        if len(out[-1])<dgtLen:
-            out[-1] = out[-1]+("Z"*(dgtLen-len(out[-1])))
-    return out[5:]
 
-def indexAtom(atm,Tree,bound = 1000,neg_bound = 0,maxItemsPerLv = 10,max_n = 5):
-    atmData = {"coord":atm.get_coord(),"name":atm.get_name(),"id":atm.get_id()}
-    adr = CordToAdress(atmData["coord"],bound,neg_bound,max_n+2)
-    n = 0
-    loc = Tree
-    while not done:
-        Tree["atm_list"].append(atmData)
-        if len(Tree["atm_list"]) == maxItems:
-            for a in Tree["atm_list"]:
-                adr2 = CordToAdress(a["coord"],bound,neg_bound)
-                lv2 = "".join([adr2[i][n+1] for i in range(len(adr2))])
-                if not lv2 in Tree:
-                    Tree[lv2] = {"atm_list":[a]}
-                else:
-                    Tree[lv2]["atm_list"].append(a)
-            break;
-        elif len(Tree["atm_list"]) > maxItemsPerLv:
-            lv = "".join([adr[i][n] for i in range(len(adr))])
-            if not lv in Tree:
-                Tree[lv] = {"atm_list":[atmData]}
-                break;
-            else:
-                loc = Tree[lv]
-            n += 1
-        if n>max_n:
-            break;
-            
-def makeAtomTree(atms,bound,neg_bound,maxItemsPerLv):
-    Tree = {"atm_list":[]}
-    for a in atms:
-        indexAtm(a,Tree,bound,neg_bound,maxItemsPerLv)
-    return Tree
-
-def getResidueInfo(residue):
-    name = residue.get_resname()
-    ID = residue.get_segid()
-    residue.sort()
-    atms = residue.get_atoms()
-    o1 = atms[0]
-    o2 = atms[0]
-    o3 = atms[0]
-    if len(atms)>1:
-        o2 = atms[1]
-        o3 = atms[1]
-        if len(atms)>2:
-            o3 = atms[2]
-    if "orientationAtomsByResidue" in globals():
-        global orientationAtoms
-        if name in orientationAtomsByResidue:
-            for z in atms:
-                if z.get_name() == orientationAtomsByResidue[name]["o1"]:
-                    o1 = z
-                if z.get_name() == orientationAtomsByResidue[name]["o2"]:
-                    o2 = z
-                if z.get_name() == orientationAtomsByResidue[name]["o3"]:
-                    o3 = z
-    c1 = np.array(o1.get_coord())
-    c2 = np.array(o2.get_coord())
-    c3 = np.array(o3.get_coord())
-    unitVec = (c2-c1)#general_utils.normDisp(c1,c2)
-    unitVec = unitVec/(np.dot(unitVec,unitVec)+0.0001)
-    normalVec = c3-c1
-    normalVec = normalVec-(np.dot(unitVec,normalVec)*unitVec)
-    normlVec /= (np.dot(normalVec,normalVec)+0.0001)
-    coords = c1#general_utils.avg([c1,c2])
-    posembedding = makeEmbedding(coords,torch.flatten([normalVec,unitVec]),scales,rotscales)
-    return {"resname":name,"ssegid":ID,"direction":unitVec,"rotation":normalVec,"coords":coords,"posembedding":posembedding}
 
 def makeEmbedding(quantities,scales):
     out = []
@@ -210,84 +129,66 @@ def makeEmbedding(quantities,scales):
     return torch.flatten(out)
 
 
-def buildSpatialTree(residueList, maxlevels = 5, maxResPerLv = 5,strtDgt = -3): #make a tree structure containing all the residues.
-    maxlevels = maxlevels + strtDgt
-    if residueIgnoreList in globals():
-        residueIgnoreList = globals()["residueIgnoreList"]
-    else:
-        residueIgnoreList = []
-    if residueAcceptList in globals():
-        residueAcceptList = globals()["residueAcceptList"]
-    else:
-        residueAcceptList = []
-    Tree = {}
-    for res in residueList:
-        if res["resname"] in residueIgnoreList:
-            pass
-        elif (len(residueAcceptList)>0) and not res["resname"] in residueAcceptList:
-            pass
-        else:
-            loc = Tree
-            dgt = strtDgt
-            while dgt<maxlevels: #shouldn't reach maxlevels most of the time, but just in case two residues have the same coordinates, maxlevels shouldn't be excessivley high
-                dgts = "#".join([str(round(r["coords"][c],dgt)) for c in len(r["coords"])])
-                if not dgts in loc:
-                    loc[dgts] = {"residueList":[r]}
-                    break;
-                elif len(loc[dgts]["residueList"]) > maxResPerLv:
-                    loc[dgts]["residueList"] += [r]
-                    loc = loc[dgts]
-                elif len(loc[dgts]["residueList"]) < maxResPerLv:
-                    loc[dgts]["residueList"] += [r]
-                    break;
-                else:
-                    loc[dgts]["residueList"] += [r]
-                    for r2 in loc[dgts]["residueList"]:
-                        dgts2 = "#".join([str(round(r["coords"][c],dgt+1)) for c in len(r["coords"])])
-                        if dgts2 in loc[dgts]:
-                            loc[dgts][dgts2]["residueList"] += [r2]
-                        else:
-                            loc[dgts][dgts2] = {"residueList":[r2]}
-                    break;
-                dgt += 1
-                if dgt == maxlevels:
-                    dgts = "#".join([str(round(r["coords"][c],dgt)) for c in len(r["coords"])])
-                    if dgts in loc:
-                        loc[dgts]["residueList"] += [r]
-                    else:
-                        loc[dgts] = {"residueList":[r]}
-    return Tree
-def getItemsWithinRadius(Tree,coord,radius): #get a list of residues within a given radius from a point
-    # currently this is not very efficient for randomly placed items- TODO: make the tree created by the above function and used by this function using binary coordinates instead of decimal ones.
-    rad2 = pow(radius,2)
-    out = []
-    if len(list(Tree.keys()))<2:
-        for res in Tree["residueList"]:
-            if general_utils.euclidSqr(res["coords"],coord)<rad2:
-                out += [res]
-        return out
-    for z in Tree:
-        if "#" in z:
-            dgts = z.split("#")
-            maxdispcoord = []
-            mindispcoord = []
-            for d in dgts:
-                f = float(dgts)
-                if f-coord[c]>0:
-                    maxdispcoord.append(f+0.5)
-                    mindispcoord.append(f-0.5)
-                else:
-                    maxdispcoord.append(f-0.5)
-                    mindispcoord.append(f+0.5)
-            if general_utils.euclidSqr(mindispcoord,coord)<radius:
-                if general_utils.euclidSqr(maxdispcoord,coord)<radius:
-                    out += Tree[z]["residueList"]
-                else:
-                    out += getItemsWithinRadius(Tree[z],coord,radius)
 #test function
-workingDirectory = os.getcwd()
+workingDirectory = os.getcwd()+"\\"
+AtomEmbeddingSize = 24
+NeedToLoad = ["AtomWeights","AtomEmbeddings","EmbedScales"]
 
+setglob = lambda thing,value: exec(thing+" = "+str(value),globals())
+for z in NeedToLoad:
+    try:
+        setglob(z,json.loads(z))
+    except:
+        print(z+" could not be loaded.")
+        setglob(z,{})
+ScaleList = ["posScales","tempoScales","rotScales"]
+for z in ScaleList:
+    if not z in EmbedScales:
+        EmbedScales[z] = [i for i in range(10)]
+    setglob(z,EmbedScales[z])
+pdb = None
+psf = None
 while True:
-    print("What PDB would you like to load?")
     j = input(">")
-    print("this doesn't actually do anything on the moment, I'm working on it...")
+    if "pdb" in j:
+        l = j.split()
+        print("Attempting to load pdb file "+l[-1])
+        pdb = loadPDB(l[-1])
+        print("pdb loaded!")
+    elif "psf" in j:
+        l = j.split()
+        print("Attempting to load psf file "+l[-1])
+        psf = loadPSF(l[-1])
+        print("psf loaded!")
+    elif "dcd" in j:
+        if (not pdb == None) and (not psf == None):
+            frame_numbers = []
+            l = j.split()
+            while frame_numbers == []:
+                c = l[:-1]
+                ta = []
+                for x in c:
+                    if "." in x:
+                        try:
+                            f = open(x,mode='r')
+                            ta += f.readlines()
+                            f.close()
+                        except:
+                            print("timestep file "+x+" could not be opened")
+                c += ta
+                for x in c:
+                    try:
+                        frame_numbers.append(float(x))
+                    except:
+                        for g in x.split(","):
+                            try:
+                                frame_numbers.append(float(g))
+                            except:
+                                pass
+                if len(frame_numbers)<1:
+                    j = input("Which times would you like to load from the trajectory?")
+            print("Attempting to load dcd file "+l[-1])
+            aEmbeds,pEmbeds = loadDCD(filename,frame_numbers,pdb,psf,timeConstant = 48.88821,tolerance = 0.0001)
+            print("dcd loaded!")
+        else:
+            print("Please load a PDB and PSF file before loading a dcd file.")
