@@ -1,7 +1,7 @@
 #This file will contain the models and all their parts
 
 #TODO:
-# - Decide between Performer and Reformer linear-ish transformers
+# - Figure out what functions to use in the kernal attention approximation
 # - Implement chosen linear-ish transformer
 # - figure out how to use 8-bit Galore
 # - write training (and testing) pipeline
@@ -50,6 +50,31 @@ class MonarchLayer(nn.Module):
             data = torch.reshape(data,(self.p*self.q))
         return data
 
+class KernalAttention(nn.Module): #(attempts to) implement the linear attention mechanisim from https://arxiv.org/pdf/2205.15317, https://arxiv.org/pdf/2009.14794, https://arxiv.org/pdf/2302.00787
+    #I am still trying to figure out exactly how this is supposed to work
+    #Also, the approximation from the paper is length dependent in some unknown way... I dislike that aspect of this architecture, as well as the odd plateau that appears midway through some of the training diagrams before going away.
+    #I conceptually prefer Reformer, but as far as I've seen this performs better in practice, and is computationally cheaper
+    def __init__(self,r,f1=self.defaultF1,f2=self.defaultF2):
+        self.f1 = f1
+        self.f2 = f2
+        self.r = r
+    def forward(self,Q,K,V):
+        # f2(w,K) maps (d,L) to (r,L)
+        # (r,L)*(L,d) -> (r,d)
+        kv = torch.matmul(self.f2(self.W,K),V)
+        # then f1(w,Q) maps (d,h,L) to (r,h,L)
+        # and (L,h,r)*(r,d) -> (L,h,d)
+        qkv = torch.matmul(torch.transpose(self.f1(self.W,Q),0,2),kv)
+        #Then, normalize along L axis so that entires sum to one (needed b/c variable length input)
+        qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
+        return qkvNormalized
+    def defaultF1(self,Ws,Qs):
+        # a measurse of simularity between each vector in the list Ws and each key in the list Qs
+    def defaultF2(self,Ws,Qs):
+        # a measurse of simularity between each vector in the list Ws and each key in the list Qs
+    def drawVectors(self,d,L):
+        # make a list of r orthagonal vectors, each of the shape (d)?
+        # wait that can't be right
 class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
     # position embeddings will be delt with somewhere else.
     # designed to be used with monarch layers without reshaping.
