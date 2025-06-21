@@ -54,11 +54,20 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
     #I am still trying to figure out exactly how this is supposed to work
     #Also, the approximation from the paper is length dependent in some unknown way... I dislike that aspect of this architecture, as well as the odd plateau that appears midway through some of the training diagrams before going away.
     #I conceptually prefer Reformer, but as far as I've seen this performs better in practice, and is computationally cheaper
-    def __init__(self,r,f1=self.defaultF1,f2=self.defaultF2):
+    def __init__(self,r,d,f1=self.defaultF1,f2=self.defaultF2):
         self.f1 = f1
         self.f2 = f2
+        self.d = d
         self.r = r
+        self.A = 0.1 #1-4A must be greater than 0
+        self.s = 1
+        self.B = pow(self.s*(1-(4*self.A)),0.5)
+        self.C = -(self.s+1)/2
+        self.D = pow(pow(1-(4*self.A),0.25),self.d)
     def forward(self,Q,K,V):
+        #Q is of shape (d,h,L)
+        #K is of shape (d,h,L)
+        #V is of shape (v,L)
         # f2(w,K) maps (d,h,L) to (r,h,L)
         # (r,L)*(L,d) -> (r,d)
         kv = torch.matmul(self.f2(self.W,K),V)
@@ -69,11 +78,13 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
         return qkvNormalized
     def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
-        
+        #Takes matrix of shape (r,d) and matrix of shape (d,h,L) and returns matrix of shape (r,h,L)
         return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*torch.matmul(torch.transpose(Qs,0,2),Qs)))
         # a measurse of simularity between each vector in the list Ws and each key in the list Qs
     def defaultF2(self,Ws,Qs):
-        # a measurse of simularity between each vector in the list Ws and each key in the list Qs
+        # a measurse of simularity between each vector in the list Ws and each key in the list Ks
+        #same as F1 but with additional coefficient self.s
+        return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*self.s*torch.matmul(torch.transpose(Qs,0,2),Qs)))
     def drawVectors(self,d,L):
         # make a list of r orthagonal vectors, each of the shape (d)? Only exactly orthogonal if r<=d
         #Right now gram-shmit method, in the future should probably be replaced with something faster if we are redrawing vectors a lot or using large d
@@ -83,6 +94,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
                 vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
                 vectors[v] /= torch.dot(vectors[v2],vectors[v-v2])+0.0001
         self.W = vectors
+        #self.W is a matrix of shape (r,d)
 class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
     # position embeddings will be delt with somewhere else.
     # designed to be used with monarch layers without reshaping.
