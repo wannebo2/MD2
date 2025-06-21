@@ -68,18 +68,20 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         #Then, normalize along L axis so that entires sum to one (needed b/c variable length input)
         qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
         return qkvNormalized
-    def defaultF1(self,Ws,Qs):
+    def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
+        
+        return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*torch.matmul(torch.transpose(Qs,0,2),Qs)))
         # a measurse of simularity between each vector in the list Ws and each key in the list Qs
     def defaultF2(self,Ws,Qs):
         # a measurse of simularity between each vector in the list Ws and each key in the list Qs
     def drawVectors(self,d,L):
         # make a list of r orthagonal vectors, each of the shape (d)? Only exactly orthogonal if r<=d
-        #Right now gram-shmit method, in the future should probably be replaced with something faster if we are redrawing vectors a lot.
+        #Right now gram-shmit method, in the future should probably be replaced with something faster if we are redrawing vectors a lot or using large d
         vectors = torch.normal(mean = torch.ones((r,d)),std = torch.ones((r,d)))
-        for v in range(len(vectors)):
-            for v2 in range(v):
-                vectors[v] -= torch.dot(vectors[v],vectors[v2])*vectors[v2]
-                vectors[v] /= torch.dot(vectors[v2],vectors[v2])+0.0001
+        for v in range(r):
+            for v2 in range(v%d):
+                vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
+                vectors[v] /= torch.dot(vectors[v2],vectors[v-v2])+0.0001
         self.W = vectors
 class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
     # position embeddings will be delt with somewhere else.
