@@ -65,6 +65,8 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         self.C = -(self.s+1)/2
         self.D = pow(pow(1-(4*self.A),0.25),self.d)
     def forward(self,Q,K,V):
+        #Q and K should probably be normalized
+        
         #Q is of shape (d,h,L)
         #K is of shape (d,h,L)
         #V is of shape (v,L)
@@ -74,7 +76,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         # then f1(w,Q) maps (d,h,L) to (r,h,L)
         # and (L,h,r)*(r,d) -> (L,h,d)
         qkv = torch.matmul(torch.transpose(self.f1(self.W,Q),0,2),kv)
-        #Then, normalize along L axis so that entires sum to one (needed b/c variable length input)
+        #Then, normalize.... the statement below is wrong, I need to figure that bit out.
         qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
         return qkvNormalized
     def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
@@ -92,7 +94,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         for v in range(r):
             for v2 in range(v%d):
                 vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
-                vectors[v] /= torch.dot(vectors[v2],vectors[v-v2])+0.0001
+                vectors[v] /= pow(torch.dot(vectors[v2],vectors[v-v2]),0.5)+0.0001
         self.W = vectors
         #self.W is a matrix of shape (r,d)
 class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
