@@ -59,7 +59,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         self.f2 = f2
         self.r = r
     def forward(self,Q,K,V):
-        # f2(w,K) maps (d,L) to (r,L)
+        # f2(w,K) maps (d,h,L) to (r,h,L)
         # (r,L)*(L,d) -> (r,d)
         kv = torch.matmul(self.f2(self.W,K),V)
         # then f1(w,Q) maps (d,h,L) to (r,h,L)
@@ -73,8 +73,14 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
     def defaultF2(self,Ws,Qs):
         # a measurse of simularity between each vector in the list Ws and each key in the list Qs
     def drawVectors(self,d,L):
-        # make a list of r orthagonal vectors, each of the shape (d)?
-        # wait that can't be right
+        # make a list of r orthagonal vectors, each of the shape (d)? Only exactly orthogonal if r<=d
+        #Right now gram-shmit method, in the future should probably be replaced with something faster if we are redrawing vectors a lot.
+        vectors = torch.normal(mean = torch.ones((r,d)),std = torch.ones((r,d)))
+        for v in range(len(vectors)):
+            for v2 in range(v):
+                vectors[v] -= torch.dot(vectors[v],vectors[v2])*vectors[v2]
+                vectors[v] /= torch.dot(vectors[v2],vectors[v2])+0.0001
+        self.W = vectors
 class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
     # position embeddings will be delt with somewhere else.
     # designed to be used with monarch layers without reshaping.
