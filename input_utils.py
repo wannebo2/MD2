@@ -52,12 +52,12 @@ def loadPSF(filename):
 
 
 def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 0.0001):
+    #takes in dcd file and a list of times to take data from, and returns a list of atom embeddings, along with a list of coordinates, velocities times, and rotation vectors
     global AtomWeights
     global AtomEmbeddings
-    global tempoScales
-    global posScales
+    #global tempoScales
+    #global posScales
     global AtomEmbeddingSize
-    global rotScales
     if not filename.endswith(".pdb"):
         filename += ".pdb"
     if "workingDirectory" in globals():
@@ -89,8 +89,11 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
     for s in desiredSteps:
         z.seek(round(s/timestep))
         frame = z.tell()
+        z.seek(round(s/timestep)+1)
+        nxtFrame = z.tell()
         for atm in atmList:
             coords = frame.x[PDBtoDCDmap[atm.get_id()]]
+            velocs = (nxtFrame.x[PDBtoDCDmap[atm.get_id()]]-coords)/timestep
             for bondedAtm in bonds[atm.get_id()]:
                 coord2 = frame.x[PDBtoDCDmap[bondedAtm]]
                 rotvec += (coords-coord2)
@@ -106,11 +109,16 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
             rotvec3 = np.ones(rotvec.shape)
             rotvec3 -= np.dot(rotvec3,rotvec)*rotvec
             rotvec3 -= np.dot(rotvec3,rotvec2)*rotvec2
-            posEmbed = makeEmbedding([s,coords,rotvec,rotvec2,rotvec3],[tempoScales,posScales,rotScales,rotScales,rotScales])
+            #posEmbed = makeEmbedding([s,coords,rotvec,rotvec2,rotvec3],[tempoScales,posScales,rotScales,rotScales,rotScales])
+            posEmbed = [coords,velocs,[s],[rotvec,rotvec2,rotvec3]]
             if not atm.get_name() in AtomEmbeddings:
                 if atm.get_name()[0] in AtomEmbeddings:
                     AtomEmbeddings[atm.get_name()] = AtomEmbeddings[atm.get_name()[0]]
+                    print("No embedding found for "+str(atm.get_name()))
+                    print("using the existing embedding for "+str(atm.get_name()[0]))
                 else:
+                    print("No embedding found for "+str(atm.get_name()))
+                    print("using a random one.")
                     AtomEmbeddings[atm.get_name()] = np.random.random(AtomEmbeddingSize)
             atmEmbed = AtomEmbeddings[atm.get_name()]
             aEmbeds.append(atmEmbed)
@@ -121,7 +129,7 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
 
 
 
-def makeEmbedding(quantities,scales):
+def makeEmbedding(quantities,scales): #probably going to unused_functions.py
     out = []
     for q in range(len(quantities)):
         scaled = torch.outer(quantities[q],scales[q])
@@ -132,7 +140,7 @@ def makeEmbedding(quantities,scales):
 #test function
 workingDirectory = os.getcwd()+"\\"
 AtomEmbeddingSize = 24
-NeedToLoad = ["AtomWeights","AtomEmbeddings","EmbedScales"]
+NeedToLoad = ["AtomWeights","AtomEmbeddings"]#,"EmbedScales"]
 
 setglob = lambda thing,value: exec(thing+" = "+str(value),globals())
 for z in NeedToLoad:
@@ -141,11 +149,11 @@ for z in NeedToLoad:
     except:
         print(z+" could not be loaded.")
         setglob(z,{})
-ScaleList = ["posScales","tempoScales","rotScales"]
-for z in ScaleList:
-    if not z in EmbedScales:
-        EmbedScales[z] = [i for i in range(10)]
-    setglob(z,EmbedScales[z])
+#ScaleList = ["posScales","tempoScales","rotScales"]
+#for z in ScaleList:
+#    if not z in EmbedScales:
+#        EmbedScales[z] = [i for i in range(10)]
+#    setglob(z,EmbedScales[z])
 pdb = None
 psf = None
 while True:

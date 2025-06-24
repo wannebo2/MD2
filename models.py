@@ -1,8 +1,8 @@
 #This file will contain the models and all their parts
 
 #TODO:
-# - Figure out what functions to use in the kernal attention approximation
-# - Implement chosen linear-ish transformer
+# - Figure out what values to use for the kernal attention approximation, review that to see if I actually implemented it right
+# - Update MonarchTransformer to use linear attn. (still need to add random vector drawing procedure into MonarchTransformer)
 # - figure out how to use 8-bit Galore
 # - write training (and testing) pipeline
 # - add visualization
@@ -59,7 +59,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         self.f2 = f2
         self.d = d
         self.r = r
-        self.A = 0.1 #1-4A must be greater than 0
+        self.A = 0.1 #1-4A must be greater than 0. TODO: figure out what the optimal value is supposed to be
         self.s = 1
         self.B = pow(self.s*(1-(4*self.A)),0.5)
         self.C = -(self.s+1)/2
@@ -77,8 +77,8 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         # and (L,h,r)*(r,d) -> (L,h,d)
         qkv = torch.matmul(torch.transpose(self.f1(self.W,Q),0,2),kv)
         #Then, normalize.... the statement below is wrong, I need to figure that bit out.
-        qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
-        return qkvNormalized
+        #qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
+        return qkv#qkvNormalized
     def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
         #Takes matrix of shape (r,d) and matrix of shape (d,h,L) and returns matrix of shape (r,h,L)
         return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*torch.matmul(torch.transpose(Qs,0,2),Qs)))
@@ -97,59 +97,74 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
                 vectors[v] /= pow(torch.dot(vectors[v2],vectors[v-v2]),0.5)+0.0001
         self.W = vectors
         #self.W is a matrix of shape (r,d)
-class MonarchTransformer(nn.Module): #at the moment, I am going to design it to support concatenating position vectors as opposed to adding them, because that's how I feel like it should work
-    # position embeddings will be delt with somewhere else.
-    # designed to be used with monarch layers without reshaping.
-    # If training is unstable, it is probably because of something wrong in here
-    def __init__(self,m,b,heads,qkdim,vdim,posdim): #input is in shape of (m,b)
+
+class RoPE(nn.Module):
+    #Positional embedding by rotating the query and key vectors
+    def __init__(self,sections,freqs):
+        self.sections = sections
+        self.freqs = freqs
+        #In the query vector, sections 0, 1, and 2 are transformed like x, y, and z, respectivley. Section 3 is the rest of the query vector.
+    def forward(self,keyEmbeddings,queryEmbeddings,locations):
+        #Currently using an inefficient implementation. TODO: figure out or find better algorithim
+        for c in range(len(embeddings)): #for each embedding
+            key = keyEmbeddings[c]
+            #First, perform an actual, 3d, rotation on the query vector so that it aligns with the absolute coordinate frame
+            #This coordinate transformation will probably need some debugging
+            query = queryEmbeddings[c]
+            qxs = ((query[sections[0]]*torch.sin(locations[4]))+(query[sections[1]]*torch.cos(locations[4]))*torch.sin(locations[5]))+(query[sections[2]]*torch.cos(locations[5]))
+            qys = ((-1*query[sections[1]]*torch.sin(locations[4]))+(query[sections[0]]*torch.cos(locations[4]))*torch.sin(locations[5]))+(query[sections[2]]*torch.cos(locations[5]))
+            qzs = ((query[sections[1]]*torch.sin(locations[4]))+(query[sections[0]]*torch.cos(locations[4]))*torch.cos(locations[5]))+(-1*query[sections[2]]*torch.sin(locations[5]))
+            query = torch.concat([qxs,qys,qzs,query[sections[3]]])
+            #Next, perform fake rotations on the keys based on their location information, at frequencies given in self.freqs. Also, perform the opposite rotations on the query vector.
+            c2 = 0
+            for xi in range(len(locations)):
+                for i in range(len(self.freqs)):
+                    keyEmbeddings[c2] = (torch.cos(spFreqs[i]*locations[xi])*keyEmbeddings[c2])+(torch.sin(spFreqs[i]*locations[xi])*keyEmbeddings[c2+1])
+                    keyEmbeddings[c2+1] = (torch.cos(spFreqs[i]*locations[xi])*keyEmbeddings[c2+1])-(torch.sin(spFreqs[i]*locations[xi])*keyEmbeddings[c2])
+                    queryEmbeddings[c2] = (torch.cos(spFreqs[i]*locations[xi])*queryEmbeddings[c2])-(torch.sin(spFreqs[i]*locations[xi])*queryEmbeddings[c2+1])
+                    queryEmbeddings[c2+1] = (torch.cos(spFreqs[i]*locations[xi])*queryEmbeddings[c2+1])+(torch.sin(spFreqs[i]*locations[xi])*queryEmbeddings[c2])
+                    c2 += 2
+        return keyEmbeddings,queryEmbeddings
+
+class MonarchTransformer(nn.Module): 
+    def __init__(self,m,b,p,q,heads,qkdim,vdim,sections,freqs,r): #input is in shape of (m*b)
         super().__init__()
         self.m = m
         self.b = b
-        self.p = heads
+        self.p = p
+        self.q = q
         self.heads = heads
         self.qkdim = qkdim
         self.sqqk = pow(qkdim,0.5)
         self.vdim = vdim
         self.posdim = posdim
-        self.Qlayer = MonarchLayer(self.m,self.b,self.qkdim+self.posdim,self.heads,reshape_output = False,reshape_input = False)
-        self.KVlayer = MonarchLayer(self.m,self.b,1,self.qkdim+self.vdim,reshape_output = False,reshape_input = False)
+        self.QKVlayer = MonarchLayer(self.m,self.b,self.p,self.q,reshape_output = True,reshape_input = True)
         self.acti = nn.LeakyReLu(0.1)
-        self.attentionActi = nn.Softmax(dim=1) #I am not sure the dimension is right... will have to double-check that.
-    def forward(self,data,Ks,Vs):
-        #Ks is of shape (N,qkdim+posdim)
-        #Vs is of shape (N,vdim)
+        self.Qnormalizer = torch.nn.LayerNorm((self.heads,self.qkdim))
+        self.Knormalizer = torch.nn.LayerNorm((self.qkdim))
+        self.Vnormalizer = torch.nn.LayerNorm((self.vdim))
+        self.PosModule = RoPE(sections,freqs)
+        self.AttnModule = KernalAttention(r,self.qkdim)
+    def forward(self,data,locations):
+        N = len(data)
+        #data should be of the shape (N,m*b), where N is the number of atoms/positions
+        # (N,m*b) -> (N,p*q)
+        QKV = self.acti(self.QKVlayer(data))
+        # (N,p*q) -> [(qkdim*heads,N),(qkdim,N),(vdim,N)]
+        QKV = torch.split(torch.t(QKV),[self.qkdim*self.heads,self.qkdim,self.vdim])
+        # (qkdim*heads,N) -> (N,heads,qkdim)
+        Q = torch.reshape(torch.t(QKV[0]),(N,self.heads,self.qkdim))
+        Q = self.Qnormalizer(Q)
+        # (qkdim,N) -> (N,qkdim)
+        K = torch.t(QKV[1])
+        K = self.Knormalizer(K)
+        # (vdim,N) -> (N,vdim)
+        V = torch.t(QKV[2])
+        V = self.Vnormalizer(V)
+        # apply relative postion embeddings to Q and K
+        K,Q = RoPE(K,Q,locations)
+        O = self.AttnModule(Q,K,V)
+        return O
         
-        #data = nn.functional.normalize(data) #nvrmnd, putting normalization in model instead of layer
-        
-        #Ks is a matrix of the shape (N,qkdim), Vs is a matrix of the shape (N,vdim)
-        # (m,1,b) -> (qkdim+posdim,heads)
-        Q = self.acti(self.Qlayer(data))
-        Q = torch.reshape(Q,(self.qkdim+self.posdim,self.heads))
-        # (m,1,b) -> (qkdim) and (vdim)
-        KV = self.acti(self.KVlayer(data))
-        KV = torch.reshape(KV,(self.qkdim+self.vdim))
-        KV = torch.split(KV,[self.qkdim,self.vdim])
-        # (N,qkdim+posdim)x(qkdim+posdim,heads) ->(N,heads)
-        QK = self.attentionActi(torch.mm(Ks,Q))
-        # (N,heads) -> (heads,N)
-        KQ = torch.transpose(QK,0,1)
-        # (heads,N)x(N,vdim) -> (heads,vdim)
-        Result = torch.mm(KQ,Vs)
-        #Returns (result of Q), (K),(V)
-        # (heads,vdim), (qkdim), (vdim)
-        return Result,KV[0],KV[1]
-        
-class Equivariant_Module(nn.Module):
-    #Contains a monarch transformer and a feed-forward network, and performs the appropriate coordinate transformations on the positional embeddings.
-    #need to figure out exactly what the transformation is.
-    def __init__(self,inp_embed_m,inp_embed_b,oup_embed_p,oup_embed_q,kqdim,posdim):
-        self.inp_embed_m = inp_embed_m
-        self.inp_embed_b = inp_embed_b
-        self.oup_embed_p = inp_embed_p
-        self.oup_embed_q = oup_embed_q
-        self.kqdim = kqdim
-        self.posdim = posdim
-        self.Transformer = MonarchTransformer(inp_embed_m,inp_embed_b,oup_embed_p,kqdim,oup_embed_q,posdim)
-        self.FF = MonarchLayer(inp_embed_m,inp_embed_b,oup_embed_p,oup_embed_q,reshape_output = False,reshape_input = False)
-    def forward(locs,tree):
+
         
