@@ -50,9 +50,15 @@ def loadPSF(filename):
             reading = True
     return Bonds
 
-
+def getDCDlength(filename,timeConstant = 48.88821):
+    if "workingDirectory" in globals():
+        global workingDirectory
+    if (not filename.beginswith(workingDirectory)):
+        filename = workingdirectory+filename
+    z = DCDFile(filename)
+    return len(z)*z.header['delta']*z.header['nsavc']*timeConstant
 def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 0.0001):
-    #takes in dcd file and a list of times to take data from, and returns a list of atom embeddings, along with a list of coordinates, velocities times, and rotation vectors
+    #takes in dcd file and a list of times to take data from, and returns a list of atom embeddings, along with a list of coordinates, velocities, times, and rotation vectors
     global AtomWeights
     global AtomEmbeddings
     #global tempoScales
@@ -110,7 +116,7 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
             rotvec3 -= np.dot(rotvec3,rotvec)*rotvec
             rotvec3 -= np.dot(rotvec3,rotvec2)*rotvec2
             #posEmbed = makeEmbedding([s,coords,rotvec,rotvec2,rotvec3],[tempoScales,posScales,rotScales,rotScales,rotScales])
-            posEmbed = [coords,velocs,[s],[rotvec,rotvec2,rotvec3]]
+            posEmbed = coords+[s]+[rotvec,rotvec2,rotvec3]+velocs
             if not atm.get_name() in AtomEmbeddings:
                 if atm.get_name()[0] in AtomEmbeddings:
                     AtomEmbeddings[atm.get_name()] = AtomEmbeddings[atm.get_name()[0]]
