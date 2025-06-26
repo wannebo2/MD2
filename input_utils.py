@@ -116,7 +116,7 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
             rotvec3 -= np.dot(rotvec3,rotvec)*rotvec
             rotvec3 -= np.dot(rotvec3,rotvec2)*rotvec2
             #posEmbed = makeEmbedding([s,coords,rotvec,rotvec2,rotvec3],[tempoScales,posScales,rotScales,rotScales,rotScales])
-            posEmbed = coords+[s]+[rotvec,rotvec2,rotvec3]+velocs
+            posEmbed = coords+[s]+getAngles(rotvec,rotvec2,rotvec3)+velocs
             if not atm.get_name() in AtomEmbeddings:
                 if atm.get_name()[0] in AtomEmbeddings:
                     AtomEmbeddings[atm.get_name()] = AtomEmbeddings[atm.get_name()[0]]
@@ -133,7 +133,19 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
     z.close()
     return aEmbeds,pEmbeds
 
-
+def getAngles(v1,v2,v3): #get a set of rotations that transforms normalized vectors v1,v2, and v3 into e1,e2, and e3
+    e1 = [1,0,0]
+    e2 = [0,1,0]
+    e3 = [0,0,1]
+    cosv1e1e2 = general_utils.getCosine(v1,e1,e2)
+    cosv1e1e3 = general_utils.getCosine(v1,e1,e3)
+    e1e2 = math.acos(cosv1e1e2)
+    e1e3 = math.acos(cosv1e1e3)
+    e1,e2 = general_utils.perform_rotation(e1,e2,-1*e1e2)
+    e1,e3 = general_utils.perform_rotation(e1,e3,-1*e1e3)
+    cosv2e2e3 = general_utils.getCosine(v2,e2,e3)
+    e2e3 = math.acos(cosv2e2e3)
+    return [e2e3,e1e3,e1e2]
 
 def makeEmbedding(quantities,scales): #probably going to unused_functions.py
     out = []
@@ -160,49 +172,3 @@ for z in NeedToLoad:
 #    if not z in EmbedScales:
 #        EmbedScales[z] = [i for i in range(10)]
 #    setglob(z,EmbedScales[z])
-pdb = None
-psf = None
-while True:
-    j = input(">")
-    if "pdb" in j:
-        l = j.split()
-        print("Attempting to load pdb file "+l[-1])
-        pdb = loadPDB(l[-1])
-        print("pdb loaded!")
-    elif "psf" in j:
-        l = j.split()
-        print("Attempting to load psf file "+l[-1])
-        psf = loadPSF(l[-1])
-        print("psf loaded!")
-    elif "dcd" in j:
-        if (not pdb == None) and (not psf == None):
-            frame_numbers = []
-            l = j.split()
-            while frame_numbers == []:
-                c = l[:-1]
-                ta = []
-                for x in c:
-                    if "." in x:
-                        try:
-                            f = open(x,mode='r')
-                            ta += f.readlines()
-                            f.close()
-                        except:
-                            print("timestep file "+x+" could not be opened")
-                c += ta
-                for x in c:
-                    try:
-                        frame_numbers.append(float(x))
-                    except:
-                        for g in x.split(","):
-                            try:
-                                frame_numbers.append(float(g))
-                            except:
-                                pass
-                if len(frame_numbers)<1:
-                    j = input("Which times would you like to load from the trajectory?")
-            print("Attempting to load dcd file "+l[-1])
-            aEmbeds,pEmbeds = loadDCD(filename,frame_numbers,pdb,psf,timeConstant = 48.88821,tolerance = 0.0001)
-            print("dcd loaded!")
-        else:
-            print("Please load a PDB and PSF file before loading a dcd file.")

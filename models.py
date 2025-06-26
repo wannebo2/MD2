@@ -1,17 +1,24 @@
 #This file will contain the models and all their parts
 
 #TODO:
-# - finish fixing coordinate transforms in RoPE pos embeddings
+# - finish code enough to run a dummy model
+# - get some simulation data to test the dummy model (it shouldn't matter what)
+# - try to run a dummy model
+# - fix all the errors that prevent the dummy model from running
+# - figure out how to correctly initialize the monarch layers (does it matter w/ normalization??)
 # - Figure out what values to use for the kernal attention approximation, review that to see if I actually implemented it right
-# - Update MonarchTransformer to use linear attn. (still need to add random vector drawing procedure into MonarchTransformer)
-# - figure out how to use 8-bit Galore
+# - add redrawing procedure to the kernal attn approx.
+# - figure out if the normalization layers are actually in the right places
+# - figure out how to use 8-bit Galore, or if it is not applicable 
 # - write training (and testing) pipeline
+# - don't forget to actually set the atom embeddings, because it currently uses random ones
 # - add visualization
 # - train and debug!
 # - if we need more data, figure out how to talk to NAMD/write program to automatically generate relavant simulations
 
 import torch
 from torch import nn
+import general_utils
 #for how layers work, see the pytorch tutorial https://docs.pytorch.org/tutorials/beginner/basics/buildmodel_tutorial.html
 #global datatype should be set if desired. 
 class MonarchLayer(nn.Module):
@@ -65,6 +72,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         self.B = pow(self.s*(1-(4*self.A)),0.5)
         self.C = -(self.s+1)/2
         self.D = pow(pow(1-(4*self.A),0.25),self.d)
+        self.drawVectors()
     def forward(self,Q,K,V):
         #Q and K should probably be normalized
         
@@ -107,23 +115,25 @@ class RoPE(nn.Module):
         #In the query vector, sections 0, 1, and 2 are transformed like x, y, and z, respectivley. Section 3 is the rest of the query vector.
     def forward(self,keyEmbeddings,queryEmbeddings,locations):
         #Currently using an inefficient implementation. TODO: figure out or find better algorithim
+        spFreqs = self.freqs
         for c in range(len(embeddings)): #for each embedding
-            key = keyEmbeddings[c]
+            
             #First, perform an actual, 3d, opposite rotations on the query and key vectors so that they align with the absolute coordinate frame
             #This coordinate transformation will probably need some debugging
+            
             query = queryEmbeddings[c]
             qx,qy,qz = query[sections[0]],query[sections[1]],query[sections[2]]
-            qx,qy = self.performRotation(self,qx,qy,-1*locations[4]) #First, rotate about the z axis
-            qx,qz = self.performRotation(self,qx,qz,-1*locations[5]) #Then, rotate about the y axis
-            qy,qz = self.performRotation(self,qy,qz,-1*locations[6]) #Finally rotate about the x axis
+            qy,qz = general_utils.performRotation(self,qy,qz,locations[4]) #First rotate about the x axis
+            qx,qz = general_utils.performRotation(self,qx,qz,locations[5]) #Then rotate about y
+            qx,qy = general_utils.performRotation(self,qx,qy,locations[6]) #Finally, rotate about the z axis
             
             queryEmbeddings[c] = torch.cat([qx,qy,qz,query[sections[3]]])
             
             key = keyEmbeddings[c]
             kx,ky,kz = key[sections[0]],key[sections[1]],key[sections[2]]
-            ky,kz = self.performRotation(self,ky,kz,locations[6]) #First rotate about the x axis
-            kx,kz = self.performRotation(self,kx,kz,locations[5]) #Then rotate about y
-            kx,ky = self.performRotation(self,kx,ky,locations[4]) #Finally, rotate about the z axis
+            ky,kz = general_utils.performRotation(self,ky,kz,locations[4]) #First rotate about the x axis
+            kx,kz = general_utils.performRotation(self,kx,kz,locations[5]) #Then rotate about y
+            kx,ky = general_utils.performRotation(self,kx,ky,locations[6]) #Finally, rotate about the z axis
 
             keyEmbeddings[c] = torch.cat([kx,ky,kz,key[sections[3]]])
             #qxs = ((query[sections[0]]*torch.sin(locations[4]))+(query[sections[1]]*torch.cos(locations[4]))*torch.sin(locations[5]))+(query[sections[2]]*torch.cos(locations[5]))
@@ -141,10 +151,7 @@ class RoPE(nn.Module):
                     queryEmbeddings[c2+1] = (torch.cos(spFreqs[i]*locations[xi])*queryEmbeddings[c2+1])+(torch.sin(spFreqs[i]*locations[xi])*queryEmbeddings[c2])
                     c2 += 2
         return keyEmbeddings,queryEmbeddings
-    def performRotation(self,A,B,angle):
-        newA = (torch.cos(angle)*A)+(torch.sin(angle)*B)
-        newB = (torch.cos(angle)*B)-(torch.sin(angle)*A)
-        return newA,newB
+
 class MonarchTransformer(nn.Module): 
     def __init__(self,m,b,p,q,heads,qkdim,vdim,sections,freqs,r): #input is in shape of (m*b)
         super().__init__()
@@ -158,7 +165,7 @@ class MonarchTransformer(nn.Module):
         self.vdim = vdim
         self.posdim = posdim
         self.QKVlayer = MonarchLayer(self.m,self.b,self.p,self.q,reshape_output = True,reshape_input = True)
-        self.acti = nn.LeakyReLu(0.1)
+        self.acti = nn.LeakyReLu(0.1) #not sure this is really the right choice, a smoother one is probably going to be more stable.
         self.Qnormalizer = torch.nn.LayerNorm((self.heads,self.qkdim))
         self.Knormalizer = torch.nn.LayerNorm((self.qkdim))
         self.Vnormalizer = torch.nn.LayerNorm((self.vdim))
@@ -185,6 +192,40 @@ class MonarchTransformer(nn.Module):
         # compute output of attention layer
         O = self.AttnModule(Q,K,V)
         return O
+    def drawVectors(self):
+        self.AttnModule.drawVectors()
         
-
+class outputLayer(nn.Module): # we will need something to convert the model output to a vector of the right shape, and then rotate the output to align with the global coordinate system so that a simple loss function can be used
+    #this will be that something
+    def __init__(self,m,b,p,q):
+        self.layer = MonarchLayer(m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 0.5)
+        
+    def forward(self,data,locs):
+        data = self.layer(data)
+        
+class DebuggingModel(nn.Module):
+    def __init__(self,layers):
+        m = 10
+        b = 10
+        p = 20
+        q = 50
+        heads = 10
+        qkdim = 100
+        vdim = 100
+        outp = 4
+        outq = 3
+        sections = [slice(0,5),slice(5,10),slice(10,15),slice(15,-1)]
+        freqs = [0.014,0.153,1.877,13.471,116.7] #these are just some random numbers of different orders of magnitude. In the future, these should be chosen more intelligently.
+        r = 63
+        self.Layers = []
+        while len(self.Layers)<layers:
+            self.Layers += [MonarchTransformer(self,m,b,p,q,heads,qkdim,vdim,sections,freqs,r)]
+        self.Layers += [MonarchLayer(m,b,outp,outq,reshape_output = True,reshape_input = True,initfactor = 0.5)]
+    def forward(self,data,locs):
+        for l in layers[:-1]:
+            data = l(data,locs)
+        data = self.Layers
+        return data
+        
+        
         

@@ -192,3 +192,50 @@ def getItemsWithinRadius(Tree,coord,radius): #get a list of residues within a gi
                     out += Tree[z]["residueList"]
                 else:
                     out += getItemsWithinRadius(Tree[z],coord,radius)
+pdb = None
+psf = None
+while True:
+    j = input(">")
+    if "pdb" in j:
+        l = j.split()
+        print("Attempting to load pdb file "+l[-1])
+        pdb = loadPDB(l[-1])
+        print("pdb loaded!")
+    elif "psf" in j:
+        l = j.split()
+        print("Attempting to load psf file "+l[-1])
+        psf = loadPSF(l[-1])
+        print("psf loaded!")
+    elif "dcd" in j:
+        if (not pdb == None) and (not psf == None):
+            frame_numbers = []
+            l = j.split()
+            while frame_numbers == []:
+                c = l[:-1]
+                ta = []
+                for x in c:
+                    if "." in x:
+                        try:
+                            f = open(x,mode='r')
+                            ta += f.readlines()
+                            f.close()
+                        except:
+                            print("timestep file "+x+" could not be opened")
+                c += ta
+                for x in c:
+                    try:
+                        frame_numbers.append(float(x))
+                    except:
+                        for g in x.split(","):
+                            try:
+                                frame_numbers.append(float(g))
+                            except:
+                                pass
+                if len(frame_numbers)<1:
+                    j = input("Which times would you like to load from the trajectory?")
+            print("Attempting to load dcd file "+l[-1])
+            aEmbeds,pEmbeds = loadDCD(filename,frame_numbers,pdb,psf,timeConstant = 48.88821,tolerance = 0.0001)
+            print("dcd loaded!")
+        else:
+            print("Please load a PDB and PSF file before loading a dcd file.")
+

@@ -37,3 +37,9 @@ def avg(vecs):
 def euclidSqr(a,b):
     amb = np.array(a)-np.array(b)
     return np.dot(amb,amb)
+def performRotation(self,A,B,angle):
+        newA = (torch.cos(angle)*A)+(torch.sin(angle)*B)
+        newB = (torch.cos(angle)*B)-(torch.sin(angle)*A)
+        return newA,newB
+def getCosine(v,e1,e2): #get cos(theta), where theta is the angle of v projected onto the e1, e2 plane:
+    return np.dot(v,e1)/pow(pow(np.dot(v,e1),2)+pow(np.dot(v,e2),2),0.5)
