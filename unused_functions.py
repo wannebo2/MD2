@@ -239,3 +239,9 @@ while True:
         else:
             print("Please load a PDB and PSF file before loading a dcd file.")
 
+def makeEmbedding(quantities,scales): #probably going to unused_functions.py
+    out = []
+    for q in range(len(quantities)):
+        scaled = torch.outer(quantities[q],scales[q])
+        out.append(torch.sin(scaled),torch.cos(scaled))
+    return torch.flatten(out)
