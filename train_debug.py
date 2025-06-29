@@ -12,12 +12,12 @@ optimizer = torch.optim.SGD(model.parameters(),lr=0.001,momentum=0.9)
 def train():
     opti
     for i,data in enumerate(training_loader):
-        stoof,expectedLocs = data
+        stoof,expLocs,expRots = data
         atmEmbeds = stoof[0]
         noisedLocs = stoof[1]
+        noisedRots = stoof[2]
         
         optimizer.zero_grad()
-        outputs = model(atmEmbeds,noisedLocs)
-        noisedLocs = 
-        loss = loss_functions.compute_loss(outputs,noisedLocs,expectedLocs)
+        outputs = model(atmEmbeds,noisedLocs,noisedRots)
+        loss = loss_functions.compute_loss(outLocs,outRots,expLocs,expRots)
         loss.backward()

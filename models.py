@@ -49,13 +49,13 @@ class MonarchLayer(nn.Module):
         self.reshape_output = reshape_output
     def forward(data):
         if self.reshape_input:
-            data = torch.reshape(data,(self.m,1,self.b))
-        data = torch.transpose(data,0,2)
+            data = torch.reshape(data,(len(data),-1,self.m,1,self.b))
+        data = torch.transpose(data,-3,-1)
         data = torch.matmul(data,self.L)
-        data = torch.transpose(data,0,2)
+        data = torch.transpose(data,-3,-1)
         data = torch.matmul(data,self.R)
         if self.reshape_output:
-            data = torch.reshape(data,(self.p*self.q))
+            data = torch.reshape(data,(len(data),-1,self.p*self.q))
         return data
 
 class KernalAttention(nn.Module): #(attempts to) implement the linear attention mechanisim from https://arxiv.org/pdf/2205.15317, https://arxiv.org/pdf/2009.14794, https://arxiv.org/pdf/2302.00787
@@ -74,6 +74,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         self.D = pow(pow(1-(4*self.A),0.25),self.d)
         self.drawVectors()
     def forward(self,Q,K,V):
+        Q = torch.transpose(Q,
         #Q and K should probably be normalized
         
         #Q is of shape (d,h,L)
@@ -84,18 +85,18 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         kv = torch.matmul(self.f2(self.W,K),V)
         # then f1(w,Q) maps (d,h,L) to (r,h,L)
         # and (L,h,r)*(r,d) -> (L,h,d)
-        qkv = torch.matmul(torch.transpose(self.f1(self.W,Q),0,2),kv)
+        qkv = torch.matmul(torch.transpose(self.f1(self.W,Q),-3,-1),kv)
         #Then, normalize.... the statement below is wrong, I need to figure that bit out.
         #qkvNormalized = torch.div(qkv,torch.sum(qkv,0))
         return qkv#qkvNormalized
     def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
         #Takes matrix of shape (r,d) and matrix of shape (d,h,L) and returns matrix of shape (r,h,L)
-        return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*torch.matmul(torch.transpose(Qs,0,2),Qs)))
+        return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*torch.matmul(torch.transpose(Qs,-3,-1),Qs)))
         # a measurse of simularity between each vector in the list Ws and each key in the list Qs
     def defaultF2(self,Ws,Qs):
         # a measurse of simularity between each vector in the list Ws and each key in the list Ks
         #same as F1 but with additional coefficient self.s
-        return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*self.s*torch.matmul(torch.transpose(Qs,0,2),Qs)))
+        return self.D*torch.exp(self.A+(self.B*torch.matmul(Ws,Qs))+(self.C*self.s*torch.matmul(torch.transpose(Qs,-3,-1),Qs)))
     def drawVectors(self):
         # make a list of r orthagonal vectors, each of the shape (d)? Only exactly orthogonal if r<=d
         #Right now gram-shmit method, in the future should probably be replaced with something faster if we are redrawing vectors a lot or using large d
@@ -115,53 +116,34 @@ class RoPE(nn.Module):# This is somehow still a work in progess.
         #In the query vector, sections 0, 1, and 2 are transformed like x, y, and z, respectivley. Section 3 is the rest of the query vector.
         #the length of freqs should be equal to half the size of sections 0, 1, and 2, if everything is to transform appropriatley.
     def forward(self,,queryEmbeddings,locations,rotations):
-        #Currently using an inefficient implementation. TODO: figure out or find better algorithim
+        #Currently working on figuring out how to get what where.
 
         #Fist, divide the queries and keys into a set of positional components that rotate, and a stationary part
-        rotQ,statQ = torch.split(queryEmbeddings,[
-        rotK = ?
+        rotQ = queryEmbeddings[...,:3,:]
+        statQ = queryEmbeddings[...,3:,:]
+
+        rotK = keyEmbeddings[...,:3,:]
+        statK = keyEmbeddings[...,:3,:]
         #Rotate the positional parts of the query and key vectors to the global coordinate frame
-        # (N,3,3) * (N,3,d) -> (N,3,d)
+        # (b,N,3,3) * (b,N,3,d) -> (b,N,3,d)
         rotQ = torch.matmul(rotations,rotQ)
         rotK = torch.matmul(rotations,rotK)
-
-        frequencyMultiplied = torch.einsum("i,jk->jik", self.freqs, locations) 
         
-        for c in range(len(embeddings)): #for each embedding
-            
-            #First, perform actual, 3d, rotations on the query and key vectors so that they align with the absolute coordinate frame
-            #This coordinate transformation will probably need some debugging
-            
-            query = queryEmbeddings[c]
-            
-            qx,qy,qz = query[sections[0]],query[sections[1]],query[sections[2]]
-            qy,qz = general_utils.performRotation(self,qy,qz,locations[4]) #First rotate about the x axis
-            qx,qz = general_utils.performRotation(self,qx,qz,locations[5]) #Then rotate about y
-            qx,qy = general_utils.performRotation(self,qx,qy,locations[6]) #Finally, rotate about the z axis
-            
-            queryEmbeddings[c] = torch.cat([qx,qy,qz,query[sections[3]]])
-            
-            key = keyEmbeddings[c]
-            kx,ky,kz = key[sections[0]],key[sections[1]],key[sections[2]]
-            ky,kz = general_utils.performRotation(self,ky,kz,locations[4]) #First rotate about the x axis
-            kx,kz = general_utils.performRotation(self,kx,kz,locations[5]) #Then rotate about y
-            kx,ky = general_utils.performRotation(self,kx,ky,locations[6]) #Finally, rotate about the z axis
+        queryEmbeddings = torch.flatten(torch.cat([rotQ,statQ],-2),start_dim=-2)
+        keyEmbeddings =  torch.flatten(torch.cat([rotK,statK],-2),start_dim=-2)
 
-            keyEmbeddings[c] = torch.cat([kx,ky,kz,key[sections[3]]])
-            #qxs = ((query[sections[0]]*torch.sin(locations[4]))+(query[sections[1]]*torch.cos(locations[4]))*torch.sin(locations[5]))+(query[sections[2]]*torch.cos(locations[5]))
-            #qys = ((-1*query[sections[1]]*torch.sin(locations[4]))+(query[sections[0]]*torch.cos(locations[4]))*torch.sin(locations[5]))+(query[sections[2]]*torch.cos(locations[5]))
-           # qzs = ((query[sections[1]]*torch.sin(locations[4]))+(query[sections[0]]*torch.cos(locations[4]))*torch.cos(locations[5]))+(-1*query[sections[2]]*torch.sin(locations[5]))
-            #query = torch.concat([qxs,qys,qzs,query[sections[3]]])
-           
-            #Next, perform fake rotations on the keys based on their location information, at frequencies given in self.freqs. Also, perform the opposite rotations on the query vector.
-            c2 = 0
-            for xi in range(len(locations)):
-                for i in range(len(self.freqs)):
-                    keyEmbeddings[c2] = (torch.cos(spFreqs[i]*locations[xi])*keyEmbeddings[c2])+(torch.sin(spFreqs[i]*locations[xi])*keyEmbeddings[c2+1])
-                    keyEmbeddings[c2+1] = (torch.cos(spFreqs[i]*locations[xi])*keyEmbeddings[c2+1])-(torch.sin(spFreqs[i]*locations[xi])*keyEmbeddings[c2])
-                    queryEmbeddings[c2] = (torch.cos(spFreqs[i]*locations[xi])*queryEmbeddings[c2])-(torch.sin(spFreqs[i]*locations[xi])*queryEmbeddings[c2+1])
-                    queryEmbeddings[c2+1] = (torch.cos(spFreqs[i]*locations[xi])*queryEmbeddings[c2+1])+(torch.sin(spFreqs[i]*locations[xi])*queryEmbeddings[c2])
-                    c2 += 2
+        #Create a tensor of shape (b,N,freqs*locations)
+        frequencyMultiplied = torch.flatten(torch.einsum("i,ljk->ljik", self.freqs, locations),start_dim=-2) # like below, if this doesn't flatten in the order I need it to, stuff will break
+        
+        #reshape the embeddings into pairs
+        queryEmbeddings = torch.reshape(queryEmbeddings,(len(queryEmbeddings),len(queryEmbeddings[0]),-1,2)) #will need to test to make sure this reshapes data the way I expect it to. It probably will not.
+        #make a set of rotation matricies of the shape (2,2,b,N,freqs*locations)
+        s = torch.sin(frequencyMultiplied)
+        c = torch.cos(frequencyMultiplied)
+        fakeRotMat = torch.tensor([[c,s],[-s,c]])
+        #apply those rotations to the embeddings
+        queryEmbeddings = torch.flatten(torch.einsum("robnd,bndo->bndr",fakeRotMat,queryEmbeddings),start_dim=-2) #it would be funny to make these spell something
+        keyEmbeddings = torch.flatten(torch.einsum("robnd,bndo->bndr",fakeRotMat,keyEmbeddings),start_dim=-2)
         return keyEmbeddings,queryEmbeddings
 
 class MonarchTransformer(nn.Module): 
@@ -189,15 +171,15 @@ class MonarchTransformer(nn.Module):
         # (N,m*b) -> (N,p*q)
         QKV = self.acti(self.QKVlayer(data))
         # (N,p*q) -> [(qkdim*heads,N),(qkdim,N),(vdim,N)]
-        QKV = torch.split(torch.t(QKV),[self.qkdim*self.heads,self.qkdim,self.vdim])
+        QKV = torch.split(torch.t(QKV,-2,-1),[self.qkdim*self.heads,self.qkdim,self.vdim])
         # (qkdim*heads,N) -> (N,heads,qkdim)
-        Q = torch.reshape(torch.t(QKV[0]),(N,self.heads,self.qkdim))
+        Q = torch.reshape(torch.t(QKV[:,0],-2,-1),(len(data),-1,self.heads,self.qkdim))
         Q = self.Qnormalizer(Q)
         # (qkdim,N) -> (N,qkdim)
-        K = torch.t(QKV[1])
+        K = torch.t(QKV[:,1],-2,-1)
         K = self.Knormalizer(K)
         # (vdim,N) -> (N,vdim)
-        V = torch.t(QKV[2])
+        V = torch.t(QKV[:,2],-2,-1)
         V = self.Vnormalizer(V)
         # apply relative postion embeddings to Q and K
         K,Q = RoPE(K,Q,locations,rotations)
@@ -212,17 +194,13 @@ class outputLayer(nn.Module): # we will need something to convert the model outp
     
     def __init__(self,m,b,p,q):
         self.layer = MonarchLayer(m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 0.5)
-        self.sections = []
-    def forward(self,data,locs):
+    def forward(self,data,locs,rotations):
         data = self.layer(data)
-        sections = self.sections
-        dx,dy,dz = data[sections[0]],data[sections[1]],data[sections[2]]
-        dy,dz = general_utils.performRotation(self,dy,dz,locations[4]) #First rotate about the x axis
-        dx,dz = general_utils.performRotation(self,dx,dz,locations[5]) #Then rotate about y
-        dx,dy = general_utils.performRotation(self,dx,dy,locations[6]) #then rotate about z
-
-        
-        return dx,dy,dz
+        data = torch.reshape(data,(len(data),len(data[0]),3,-1))
+        data = torch.matmul(rotations,data)
+        NewLocs = torch.flatten(data[...,:-3],start_dim=-2)
+        NewRots = data[...,-3:]
+        return NewLocs,NewRots
 class DebuggingModel(nn.Module):
     def __init__(self,layers):
         m = 10
@@ -240,11 +218,11 @@ class DebuggingModel(nn.Module):
         self.Layers = []
         while len(self.Layers)<layers:
             self.Layers += [MonarchTransformer(self,m,b,p,q,heads,qkdim,vdim,sections,freqs,r)]
-        self.Layers += [outputLayer(m,b,outp,outq)]
-    def forward(self,data,locs):
-        for l in self.Layers:
-            data = l(data,locs)
-        return data
+        self.OutputLayer = outputLayer(m,b,outp,outq)
+    def forward(self,data,locs,rots):
+        for l in self.Layers[:-1]:
+            data = l(data,locs,rots)
+        return self.OutputLayer(data)
         
         
         
