@@ -111,7 +111,7 @@ def loadDCD(filename,desiredSteps,pdb,bonds,timeConstant = 48.88821,tolerance = 
             rotvec3 -= np.dot(rotvec3,rotvec2)*rotvec2
             rotvecs = [rotvec,rotvec2,rotvec3]
             #posEmbed = makeEmbedding([s,coords,rotvec,rotvec2,rotvec3],[tempoScales,posScales,rotScales,rotScales,rotScales])
-            loc = coords+[s]+velocs
+            loc = [coords[0],velocs[0],coords[1],velocs[1],coords[2],velocs[2],s]
             if not atm.get_name() in AtomEmbeddings:
                 if atm.get_name()[0] in AtomEmbeddings:
                     AtomEmbeddings[atm.get_name()] = AtomEmbeddings[atm.get_name()[0]]
