@@ -12,7 +12,7 @@ class TrajectoryDataset(Dataset):
             if thing[-4:] == ".dcd":
                 self.trajNames  += [self.dir+thing]
                 self.trajLens += [input_utils.getDCDlength(self.trajNames[-1])]
-        while len(self.trajNames)<3:
+        while len(self.trajNames)<15:
             print("too few trajectories. Using random data.")
             self.trajNames += ["RANDOM"]
             self.trajLens += [-1]
@@ -35,8 +35,8 @@ class TrajectoryDataset(Dataset):
             atmEmbeds = torch.rand((N,d))
             noised = torch.rand((N,7))
             noisedRots = torch.rand((N,3,3))
-            locs = torch.rand((N,7))
-            rots = torch.rand((N,3,3))
+            locs = torch.ones((N,7))
+            rots = torch.ones((N,3,3))
             return [atmEmbeds,noised,noisedRots],locs,rots
         pdb = input_utils.loadPDB(f)
         psf = input_utils.loadPSF(f)

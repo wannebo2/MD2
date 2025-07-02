@@ -1,11 +1,6 @@
 #This file will contain the models and all their parts
 
 #TODO:
-# - finish code enough to run a dummy model
-# - get some simulation data to test the dummy model (it shouldn't matter what)
-# - try to run a dummy model
-# - fix all the errors that prevent the dummy model from running
-# - figure out how to correctly initialize the monarch layers (does it matter w/ normalization??)
 # - Figure out what values to use for the kernal attention approximation, review that to see if I actually implemented it right
 # - add redrawing procedure to the kernal attn approx.
 # - figure out if the normalization layers are actually in the right places
@@ -24,7 +19,7 @@ import general_utils
 class MonarchLayer(nn.Module):
     # structured version of a dense layer
     # See https://arxiv.org/abs/2204.00595 for why
-    def __init__(self,m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 0.5): #input is m*b, output is p*q, there are probably some numbers that run best on GPUs, but I do not know what those numbers are.
+    def __init__(self,m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 1): #input is m*b, output is p*q, there are probably some numbers that run best on GPUs, but I do not know what those numbers are.
         # the number of parameters is pb(m+q)
         # in the original paper, m = b = p = q = sqrt(n), so has 2sqrt(n)*n parameters
         # for simular performance with dissimilar input/output sizes, I bet m = b and p = q is the way to go
@@ -43,17 +38,22 @@ class MonarchLayer(nn.Module):
         self.p = p
         self.q = q
         #self.dtype = dtype
-        self.L = nn.Parameter(initfactor*(torch.rand((b,m,p))-1))  #TODO: fix this initialization - see https://arxiv.org/html/2406.06248v1#S3 
-        self.R = nn.Parameter(initfactor*(torch.rand((p,b,q))-1))
+        self.L = nn.Parameter(initfactor*(torch.normal(mean = torch.zeros(b,m,p))/m))  #TODO: fix this initialization - see https://arxiv.org/html/2406.06248v1#S3 
+        self.R = nn.Parameter(initfactor*(torch.normal(mean = torch.zeros(p,b,q))/b)) # I think i've fixed them, but the gradients may need to be rescaled or something
+        self.Biases = nn.Parameter(initfactor*(torch.normal(mean = torch.zeros(p,1,q))))
         self.reshape_input = reshape_input
         self.reshape_output = reshape_output
     def forward(self,data):
         if self.reshape_input:
             data = torch.reshape(data,(len(data),-1,self.m,1,self.b))
         data = torch.transpose(data,-3,-1)
+        #print("data device: "+str(data.get_device()))
+        #print("L device: "+str(self.L.get_device()))
+       # print("R device: "+str(self.R.get_device()))
         data = torch.matmul(data,self.L)
         data = torch.transpose(data,-3,-1)
         data = torch.matmul(data,self.R)
+        data = data+self.Biases
         if self.reshape_output:
             data = torch.reshape(data,(len(data),-1,self.p*self.q))
         return data
@@ -74,32 +74,36 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
             self.f2 = f2
         self.d = d
         self.r = r
-        self.A = 0.1 #1-4A must be greater than 0. TODO: figure out what the optimal value is supposed to be
+        self.A = 0.05 #1-4A must be greater than 0. TODO: figure out what the optimal value is supposed to be
         self.s = 1
         self.B = pow(self.s*(1-(4*self.A)),0.5)
         self.C = -(self.s+1)/2
         self.D = pow(pow(1-(4*self.A),0.25),self.d)
+        self.device = 0
+        self.drawVectors()
+    def to(self,device):
+        self.device = device
         self.drawVectors()
     def forward(self,Q,K,V):
         #Q = torch.transpose(Q,
         #Q and K should probably be normalized
-        print("Q shape: "+str(Q.shape))
-        print("K shape: "+str(K.shape))
-        print("V shape: "+str(V.shape))
-        print("W shape: "+str(self.W.shape))
+        #print("Q shape: "+str(Q.shape))
+       # #print("K shape: "+str(K.shape))
+        #print("V shape: "+str(V.shape))
+        #print("W shape: "+str(self.W.shape))
         #Q is of shape (b,d,h,L)
         #K is of shape (b,d,h,L)
         #V is of shape (b,v,L)
         # f2(w,K) maps (d,h,L) to (r,h,L)
         # (r,L)*(L,d) -> (r,d)
         wk = self.f2(self.W,K)
-        print("wk shape: "+str(wk.shape))
+        #print("wk shape: "+str(wk.shape))
         kv = torch.einsum("bnr,bnd->brd",wk,V)
-        print("KV shape: "+str(kv.shape))
+        #print("KV shape: "+str(kv.shape))
         # then f1(w,Q) maps (d,h,L) to (r,h,L)
         # and (L,h,r)*(r,d) -> (L,h,d)
         wq = self.f1(self.W,Q)
-        print("WQ shape: "+str(wq.shape))
+        #print("WQ shape: "+str(wq.shape))
         qkv = torch.einsum("bnhr,brd->bnhd",wq,kv)
         #qkv = torch.matmul(torch.transpose(wq,-3,-1),kv)
         #Then, normalize.... the statement below is wrong, I need to figure that bit out.
@@ -123,7 +127,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
             for v2 in range(v%self.d):
                 vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
                 vectors[v] /= pow(torch.dot(vectors[v],vectors[v]),0.5)+0.0001
-        self.W = torch.t(vectors)
+        self.W = torch.t(vectors).to(self.device)
         #self.W is a matrix of shape (r,d)
 
 class RoPE(nn.Module):# This is somehow still a work in progess.
@@ -132,7 +136,10 @@ class RoPE(nn.Module):# This is somehow still a work in progess.
         super().__init__()
         self.freqs = torch.tensor(freqs)
         self.U = sections
-       
+    def to(self, device):
+        super().to(device)
+        #print("I'm being called!")
+        self.freqs = self.freqs.to(device)
     def forward(self,keyEmbeddings,queryEmbeddings,locations,rotations):
         
         #First, reshape the key and queries into a more convienient shape
@@ -153,6 +160,8 @@ class RoPE(nn.Module):# This is somehow still a work in progess.
         keyEmbeddings =  torch.flatten(torch.cat([rotK,statK],-2),start_dim=-2)
 
         #Create a tensor of shape (b,N,freqs*locations)
+        #print("f device: "+str(self.freqs.device))
+        #print("loc device: "+str(locations.device))
         frequencyMultiplied = torch.flatten(torch.einsum("i,ljk->ljik", self.freqs, locations),start_dim=-2) # like below, if this doesn't flatten in the order I need it to, stuff will break
         
         #reshape the embeddings into pairs
@@ -163,13 +172,13 @@ class RoPE(nn.Module):# This is somehow still a work in progess.
         c = torch.cos(frequencyMultiplied)
         fakeRotMat = torch.stack([torch.stack([c,s]),torch.stack([-1*s,c])])
         #apply those rotations to the embeddings
-        print("rot mat shape: "+str(fakeRotMat.shape))
-        print("Q shape: "+str(queryEmbeddings.shape))
-        print("K shape: "+str(keyEmbeddings.shape))
+        #print("rot mat shape: "+str(fakeRotMat.shape))
+        #print("Q shape: "+str(queryEmbeddings.shape))
+        #print("K shape: "+str(keyEmbeddings.shape))
         rotQ = queryEmbeddings[...,:fakeRotMat.shape[-1],:]
         statQ = queryEmbeddings[...,fakeRotMat.shape[-1]:,:]
         rotK = keyEmbeddings[...,:fakeRotMat.shape[-1],:]
-        print("rotK shape: "+str(rotK.shape))
+        #print("rotK shape: "+str(rotK.shape))
         statK = keyEmbeddings[...,fakeRotMat.shape[-1]:,:]
         rotQ = torch.einsum("robnd,bnhdo->bnhdr",fakeRotMat,rotQ) #it would be funny to make these spell something
         rotK = torch.einsum("robnd,bndo->bndr",fakeRotMat,rotK)
@@ -190,64 +199,78 @@ class MonarchTransformer(nn.Module):
         self.vdim = vdim
         #self.posdim = posdim
         self.QKVlayer = MonarchLayer(self.m,self.b,self.p,self.q,reshape_output = True,reshape_input = True)
-        self.acti = nn.LeakyReLU(0.1) #not sure this is really the right choice, a smoother one is probably going to be more stable.
-        self.Qnormalizer = torch.nn.LayerNorm((self.heads,self.qkdim))
-        self.Knormalizer = torch.nn.LayerNorm((self.qkdim))
-        self.Vnormalizer = torch.nn.LayerNorm((self.vdim))
+        self.acti = nn.SELU()
+        #self.Qnormalizer = torch.nn.LayerNorm((self.heads,self.qkdim))
+        #self.Knormalizer = torch.nn.LayerNorm((self.qkdim))
+        #self.Vnormalizer = torch.nn.LayerNorm((self.vdim))
         self.PosModule = RoPE(freqs,sections)
         self.AttnModule = KernalAttention(r,self.qkdim)
         self.FFlayer = MonarchLayer(self.m,self.b,self.heads,self.vdim,reshape_output = True,reshape_input = True)
+        self.OutputNorm = torch.nn.LayerNorm((self.heads*self.vdim))
     def forward(self,data,locations,rotations):
         N = len(data)
         #data should be of the shape (N,m*b), where N is the number of atoms/positions
         # (N,m*b) -> (N,p*q)
         QKV = self.acti(self.QKVlayer(data))
-        print("QKV shape: "+str(QKV.shape))
         # (N,p*q) -> [(qkdim*heads,N),(qkdim,N),(vdim,N)]
         QKV = torch.split(QKV,[self.qkdim*self.heads,self.qkdim,self.vdim],dim=-1)
         # (qkdim*heads,N) -> (N,heads,qkdim)
         Q = torch.reshape(QKV[0],(len(data),-1,self.heads,self.qkdim))
-        print("Q shape: "+str(Q.shape))
-        Q = self.Qnormalizer(Q)
+        #print("Q shape: "+str(Q.shape))
+        divsr = torch.unsqueeze(torch.pow(torch.sum(torch.pow(Q,2),dim=-1),0.5),dim=-1)+0.0001
+       # print("divisor shape: "+str(divsr.shape))
+        Q = torch.div(Q,divsr)
         # (qkdim,N) -> (N,qkdim)
         K = QKV[1]#torch.transpose(QKV[1],-2,-1)
-        print("K shape: "+str(K.shape))
-        K = self.Knormalizer(K)
+       # print("K shape: "+str(K.shape))
+        divsr = torch.unsqueeze(torch.pow(torch.sum(torch.pow(K,2),dim=-1),0.5),dim=-1)+0.0001
+        K = torch.div(K,divsr)
         # (vdim,N) -> (N,vdim)
         V = QKV[2]#torch.transpose(QKV[2],-2,-1)
-        print("V shape: "+str(K.shape))
-        V = self.Vnormalizer(V)
+       # print("V shape: "+str(K.shape))
+        divsr = torch.unsqueeze(torch.pow(torch.sum(torch.pow(V,2),dim=-1),0.5),dim=-1)+0.0001
+        V = torch.div(V,divsr)
         # apply relative postion embeddings to Q and K
         K,Q = self.PosModule(K,Q,locations,rotations)
         # compute output of attention layer
         O = self.AttnModule(Q,K,V)
         O = torch.flatten(O,start_dim = -2)
-        print("O shape: "+str(O.shape))
+        #print("max O: "+str(torch.max(O)))
+       # print("O shape: "+str(O.shape))
         #and the output of the feed forward layer
         FFO = self.acti(self.FFlayer(data))
-        print("FFO shape: "+str(FFO.shape))
-        return O+FFO #return their sum
+       # print("max FFO: "+str(torch.max(FFO)))
+       # print("FFO shape: "+str(FFO.shape))
+        out = self.OutputNorm(O+FFO)
+       # print("max out: "+str(torch.max(out)))
+        return out#return their sum
     def drawVectors(self):
         self.AttnModule.drawVectors()
-        
+    def to(self,device):
+        super().to(device)
+        #print("I've been called.")
+        self.FFlayer.to(device)
+        self.QKVlayer.to(device)
+        self.AttnModule.to(device)
+        self.PosModule.to(device)
 class outputLayer(nn.Module): # we will need something to convert the model output to a vector of the right shape, and then rotate the output to align with the global coordinate system so that a simple loss function can be used
     #this will be that something
     
     def __init__(self,m,b,p,q):
         super().__init__()
-        self.layer = MonarchLayer(m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 0.5)
+        self.mLayer = MonarchLayer(m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 0.5)
     def forward(self,data,locs,rotations):
-        data = self.layer(data)
+        data = self.mLayer(data)
         data = torch.reshape(data,(len(data),len(data[0]),4,-1))
         rotData = torch.matmul(rotations,data[...,:-1,:])
-        print("rotData shape: "+str(rotData.shape))
+       # print("rotData shape: "+str(rotData.shape))
         NewLocs = torch.flatten(rotData[...,:2],start_dim=-2)
         NewRots = rotData[...,2:5]
         NewLocs = torch.cat([NewLocs,locs[...,-1:]],dim=-1)
        # NewRots = data[...,-9:]
     
-        print("NewLocs shape: "+str(NewLocs.shape))
-        print("NewRots shape: "+str(NewRots.shape))
+      #  print("NewLocs shape: "+str(NewLocs.shape))
+       # print("NewRots shape: "+str(NewRots.shape))
         return NewLocs,NewRots
 class DebuggingModel(nn.Module):
     def __init__(self,layers):
@@ -268,16 +291,22 @@ class DebuggingModel(nn.Module):
         self.Layers = []
         while len(self.Layers)<layers:
             self.Layers += [MonarchTransformer(m,b,p,q,heads,qkdim,vdim,freqs,r,u)]
+        self.Layers = nn.ModuleList(self.Layers)
         self.OutputLayer = outputLayer(m,b,outp,outq)
     def forward(self,data,locs,rots):
-        for l in self.Layers:
-            print("running layer...")
-            print(" data shape is "+str(data.shape))
+        for i,l in enumerate(self.Layers):
+            #print("running layer...")
+            #print(" data shape is "+str(data.shape))
             data = l(data,locs,rots)
         return self.OutputLayer(data,locs,rots)
     def drawVectors(self):
-        for l in self.Layers:
+        for i,l in enumerate(self.Layers):
             l.drawVectors()
+    def to(self,device):
+        super().to(device)
+        for i,l in enumerate(self.Layers):
+            l.to(device)
+        self.OutputLayer.to(device)
         
         
         
