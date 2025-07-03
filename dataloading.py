@@ -35,6 +35,8 @@ class TrajectoryDataset(Dataset):
             atmEmbeds = torch.rand((N,d))
             noised = torch.rand((N,7))
             noisedRots = torch.rand((N,3,3))
+            svd = torch.linalg.svd(noisedRots)
+            noisedRots = svd[0] @ svd[2]
             locs = torch.ones((N,7))
             rots = torch.ones((N,3,3))
             return [atmEmbeds,noised,noisedRots],locs,rots

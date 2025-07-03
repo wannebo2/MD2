@@ -24,8 +24,10 @@ def train(data_loader,model,c):
         loss = loss_functions.compute_loss(outLocs,outRots,expLocs,expRots)
         losses.append(torch.sum(loss).cpu().detach()/(5*200*(7+9)))
         #print("c")
-        loss.backward()
         optimizer.zero_grad()
+        loss.backward(retain_graph=True)
+        optimizer.step()
+        #optimizer.zero_grad()
        # print("cycle")
         I += 1
         #if i % 100 == 0:
@@ -47,9 +49,9 @@ else:
     print("running on CPU")
 model.to(device)
 print("initializing optimizer...")
-optimizer = torch.optim.Adam(model.parameters(),lr=0.01)
+optimizer = torch.optim.Adam(model.parameters(),lr=0.001)
 l = len(data_loader)
-N = 10000
+N = 1000
 print("training for "+str(N)+" epochs")
 c = 0
 plt.ion()
@@ -68,7 +70,7 @@ while c<N:
     epochs += [c]
     c += 1
     if c%100 == 0:
-        model.drawVectors()
+        #model.drawVectors()
         Alosses += [sum(losses[-100:])/len(losses[-100:])]
         Aepochs += [c]
         axs.plot(epochs,losses,Aepochs,Alosses)

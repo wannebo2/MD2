@@ -74,7 +74,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
             self.f2 = f2
         self.d = d
         self.r = r
-        self.A = 0.05 #1-4A must be greater than 0. TODO: figure out what the optimal value is supposed to be
+        self.A = 0.05#nn.Parameter(torch.tensor(0.05)) #1-4A must be greater than 0. TODO: figure out what the optimal value is supposed to be
         self.s = 1
         self.B = pow(self.s*(1-(4*self.A)),0.5)
         self.C = -(self.s+1)/2
@@ -83,7 +83,9 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
         self.drawVectors()
     def to(self,device):
         self.device = device
-        self.drawVectors()
+        #self.A = self.A.to(device)
+        self.W = self.W.to(device)
+        #self.drawVectors()
     def forward(self,Q,K,V):
         #Q = torch.transpose(Q,
         #Q and K should probably be normalized
@@ -112,12 +114,12 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
     def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
         #Takes matrix of shape (r,d) and matrix of shape (d,h,L) and returns matrix of shape (r,h,L)
         wk = torch.matmul(Qs,Ws)
-        return self.D*torch.exp(self.A+(wk)+(self.C))#torch.matmul(torch.transpose(Qs,-3,-1),Qs)))
+        return torch.exp((wk))#torch.matmul(torch.transpose(Qs,-3,-1),Qs)))
         # a measurse of simularity between each vector in the list Ws and each key in the list Qs
     def defaultF1(self,Ws,Qs): #correct if Ws is normalized, which it should be
         # same as F1 but with an extra factor self.s
         wk = torch.matmul(Qs,Ws)
-        return self.D*torch.exp(self.A+(wk)+(self.C*self.s))#torch.matmul(torch.transpose(Qs,-3,-1),Qs)))
+        return torch.exp((wk))#torch.matmul(torch.transpose(Qs,-3,-1),Qs)))
         
     def drawVectors(self):
         # make a list of r orthagonal vectors, each of the shape (d)? Only exactly orthogonal if r<=d
@@ -127,10 +129,10 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
             for v2 in range(v%self.d):
                 vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
                 vectors[v] /= pow(torch.dot(vectors[v],vectors[v]),0.5)+0.0001
-        self.W = torch.t(vectors).to(self.device)
+        self.W = nn.Parameter(torch.t(vectors))
         #self.W is a matrix of shape (r,d)
 
-class RoPE(nn.Module):# This is somehow still a work in progess.
+class RoPE(nn.Module):
     #Positional embedding by rotating the query and key vectors
     def __init__(self,freqs,sections):
         super().__init__()
@@ -265,8 +267,8 @@ class outputLayer(nn.Module): # we will need something to convert the model outp
         rotData = torch.matmul(rotations,data[...,:-1,:])
        # print("rotData shape: "+str(rotData.shape))
         NewLocs = torch.flatten(rotData[...,:2],start_dim=-2)
-        NewRots = rotData[...,2:5]
-        NewLocs = torch.cat([NewLocs,locs[...,-1:]],dim=-1)
+        NewRots = rotData[...,2:5]+rotations
+        NewLocs = torch.cat([NewLocs,locs[...,-1:]],dim=-1)+locs
        # NewRots = data[...,-9:]
     
       #  print("NewLocs shape: "+str(NewLocs.shape))
