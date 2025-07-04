@@ -11,6 +11,7 @@ def train(data_loader,model,c):
     I = 0
     Kl = random.randint(0,199)
     Kl2 = random.randint(0,6)
+    print(Kl2)
     Kr2 = random.randint(0,2)
     Kr3 = random.randint(0,2)
     for i,data in enumerate(data_loader):

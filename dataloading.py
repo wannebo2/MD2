@@ -36,7 +36,7 @@ class TrajectoryDataset(Dataset):
         self.rots = torch.rand((N,3,3))
         svd = torch.linalg.svd(self.rots)
         self.rots = torch.stack([general_utils.DrawOrthonormalMatrix(3,3) for i in range(N)])
-        self.LocsA = torch.cat([torch.flatten(torch.matmul(self.RA,self.locs),start_dim=-2),self.tl[...,-1:]],dim=-1)
+        self.LocsA = torch.cat([torch.flatten(torch.matmul(self.RA,self.locs),start_dim=-2),self.tl[...,-1:]],dim=-1)+torch.normal(torch.ones(7))
         self.locs = torch.cat([torch.flatten(self.locs,start_dim=-2),self.tl[...,-1:]],dim=-1)
         self.rotsA = torch.matmul(self.RA,self.rots)
     def __len__(self):
