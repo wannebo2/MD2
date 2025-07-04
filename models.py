@@ -19,7 +19,7 @@ import general_utils
 class MonarchLayer(nn.Module):
     # structured version of a dense layer
     # See https://arxiv.org/abs/2204.00595 for why
-    def __init__(self,m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 1): #input is m*b, output is p*q, there are probably some numbers that run best on GPUs, but I do not know what those numbers are.
+    def __init__(self,m,b,p,q,reshape_output = True,reshape_input = True,initfactor = 100): #input is m*b, output is p*q, there are probably some numbers that run best on GPUs, but I do not know what those numbers are.
         # the number of parameters is pb(m+q)
         # in the original paper, m = b = p = q = sqrt(n), so has 2sqrt(n)*n parameters
         # for simular performance with dissimilar input/output sizes, I bet m = b and p = q is the way to go
@@ -124,11 +124,7 @@ class KernalAttention(nn.Module): #(attempts to) implement the linear attention 
     def drawVectors(self):
         # make a list of r orthagonal vectors, each of the shape (d)? Only exactly orthogonal if r<=d
         #Right now gram-shmit method, in the future should probably be replaced with something faster if we are redrawing vectors a lot or using large d
-        vectors = torch.normal(mean = torch.zeros((self.r,self.d)),std = torch.ones((self.r,self.d)))
-        for v in range(self.r):
-            for v2 in range(v%self.d):
-                vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
-                vectors[v] /= pow(torch.dot(vectors[v],vectors[v]),0.5)+0.0001
+        vectors = general_utils.DrawOrthonormalMatrix(self.r,self.d)
         self.W = nn.Parameter(torch.t(vectors))
         #self.W is a matrix of shape (r,d)
 
@@ -155,8 +151,8 @@ class RoPE(nn.Module):
         statK = keyEmbeddings[...,3:,:]
         #Rotate the positional parts of the query and key vectors to the global coordinate frame
         # (b,N,3,3) * (b,N,h,3,d) -> (b,N,h,3,d)
-        rotQ = torch.einsum("bnac,bnhcd->bnhad",rotations,rotQ)
-        rotK = torch.matmul(rotations,rotK)
+        rotQ = torch.einsum("bnca,bnhcd->bnhad",rotations,rotQ)
+        rotK = torch.einsum("bnca,bncd->bnad",rotations,rotK)
         
         queryEmbeddings = torch.flatten(torch.cat([rotQ,statQ],-2),start_dim=-2)
         keyEmbeddings =  torch.flatten(torch.cat([rotK,statK],-2),start_dim=-2)
@@ -209,6 +205,7 @@ class MonarchTransformer(nn.Module):
         self.AttnModule = KernalAttention(r,self.qkdim)
         self.FFlayer = MonarchLayer(self.m,self.b,self.heads,self.vdim,reshape_output = True,reshape_input = True)
         self.OutputNorm = torch.nn.LayerNorm((self.heads*self.vdim))
+        self.AttnNorm = torch.nn.LayerNorm((self.heads*self.vdim))
     def forward(self,data,locations,rotations):
         N = len(data)
         #data should be of the shape (N,m*b), where N is the number of atoms/positions
@@ -236,14 +233,14 @@ class MonarchTransformer(nn.Module):
         K,Q = self.PosModule(K,Q,locations,rotations)
         # compute output of attention layer
         O = self.AttnModule(Q,K,V)
-        O = torch.flatten(O,start_dim = -2)
+        O = self.AttnNorm(torch.flatten(O,start_dim = -2))
         #print("max O: "+str(torch.max(O)))
        # print("O shape: "+str(O.shape))
         #and the output of the feed forward layer
         FFO = self.acti(self.FFlayer(data))
        # print("max FFO: "+str(torch.max(FFO)))
        # print("FFO shape: "+str(FFO.shape))
-        out = self.OutputNorm(O+FFO)
+        out = self.OutputNorm(O+FFO+data)
        # print("max out: "+str(torch.max(out)))
         return out#return their sum
     def drawVectors(self):
@@ -264,11 +261,11 @@ class outputLayer(nn.Module): # we will need something to convert the model outp
     def forward(self,data,locs,rotations):
         data = self.mLayer(data)
         data = torch.reshape(data,(len(data),len(data[0]),4,-1))
-        rotData = torch.matmul(rotations,data[...,:-1,:])
+        rotData = data[...,:-1,:]#torch.matmul(torch.transpose(rotations,-2,-1),data[...,:-1,:])
        # print("rotData shape: "+str(rotData.shape))
         NewLocs = torch.flatten(rotData[...,:2],start_dim=-2)
-        NewRots = rotData[...,2:5]+rotations
-        NewLocs = torch.cat([NewLocs,locs[...,-1:]],dim=-1)+locs
+        NewRots = rotData[...,2:5]#+rotations
+        NewLocs = torch.cat([NewLocs,locs[...,-1:]],dim=-1)#+locs
        # NewRots = data[...,-9:]
     
       #  print("NewLocs shape: "+str(NewLocs.shape))

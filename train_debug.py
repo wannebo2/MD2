@@ -4,10 +4,15 @@ import dataloading
 import loss_functions
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
+import random
 def train(data_loader,model,c):
     global device
     losses = []
     I = 0
+    Kl = random.randint(0,199)
+    Kl2 = random.randint(0,6)
+    Kr2 = random.randint(0,2)
+    Kr3 = random.randint(0,2)
     for i,data in enumerate(data_loader):
         stoof,expLocs,expRots = data
         atmEmbeds = stoof[0]
@@ -20,25 +25,27 @@ def train(data_loader,model,c):
         expRots = expRots.to(device)
         #print("a")
         outLocs,outRots = model(atmEmbeds,noisedLocs,noisedRots)
+        print("location rnd value: "+str(outLocs[0,Kl,Kl2]))
+        print("rotation rnd value: "+str(outRots[0,Kr2,Kr3]))
         #print("b")
-        loss = loss_functions.compute_loss(outLocs,outRots,expLocs,expRots)
-        losses.append(torch.sum(loss).cpu().detach()/(5*200*(7+9)))
+        #loss = loss_functions.compute_loss(outLocs,outRots,expLocs,expRots)
+        #losses.append(torch.sum(loss).cpu().detach()/(5*200*(7+9)))
         #print("c")
-        optimizer.zero_grad()
-        loss.backward(retain_graph=True)
-        optimizer.step()
+        #optimizer.zero_grad()
+        #loss.backward()
+        #optimizer.step()
         #optimizer.zero_grad()
        # print("cycle")
         I += 1
         #if i % 100 == 0:
             #print(str(round(i/l,3)*100)+" % complete with epoch number "+str(c))
             #print(loss)
-    return sum(losses)/I
+    return 0#sum(losses)/I
     print("done!")
 path = "trajectories/"
 print("loading dataset...")
 dataset = dataloading.TrajectoryDataset(path)
-data_loader = torch.utils.data.DataLoader(dataset,batch_size=5,shuffle=True)
+data_loader = torch.utils.data.DataLoader(dataset,batch_size=1,shuffle=True)
 print("initializing model...")
 model = models.DebuggingModel(3)
 if torch.cuda.is_available:

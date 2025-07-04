@@ -1,6 +1,7 @@
 #assorted vector operations
 import math
 import numpy
+import torch
 def euclidSqr(a,b):
     amb = np.array(a)-np.array(b)
     return np.dot(amb,amb)
@@ -28,6 +29,13 @@ def getAngles(v1,v2,v3): #get a set of rotations that transforms normalized vect
     cosv2e2e3 = getCosine(v2,e2,e3)
     e2e3 = math.acos(cosv2e2e3)
     return [e2e3,e1e3,e1e2]
+def DrawOrthonormalMatrix(r,d):
+    vectors = torch.normal(mean = torch.zeros((r,d)),std = torch.ones((r,d)))
+    for v in range(r):
+        for v2 in range(v%d):
+            vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
+            vectors[v] /= pow(torch.dot(vectors[v],vectors[v]),0.5)+0.0001
+    return vectors
 #def applyDenoise(deltas,locations,rotationVectors,denoise_factor):
     #Todo: go through and make sure everything has the right shape
     
