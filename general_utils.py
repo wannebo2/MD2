@@ -34,7 +34,7 @@ def DrawOrthonormalMatrix(r,d):
     for v in range(r):
         for v2 in range(v%d):
             vectors[v] -= torch.dot(vectors[v],vectors[v-v2])*vectors[v2]
-            vectors[v] /= pow(torch.dot(vectors[v],vectors[v]),0.5)+0.0001
+            vectors[v] /= pow(torch.dot(vectors[v],vectors[v]),0.5)+0.001
     return vectors
 #def applyDenoise(deltas,locations,rotationVectors,denoise_factor):
     #Todo: go through and make sure everything has the right shape

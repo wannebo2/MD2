@@ -1,0 +1,46 @@
+TITLE     MDANALYSIS FRAME 0: Created by PDBWriter
+CRYST1    1.000    1.000    1.000  90.00  90.00  90.00 P 1           1
+REMARK     285 UNITARY VALUES FOR THE UNIT CELL AUTOMATICALLY SET
+REMARK     285 BY MDANALYSIS PDBWRITER BECAUSE UNIT CELL INFORMATION
+REMARK     285 WAS MISSING.
+REMARK     285 PROTEIN DATA BANK CONVENTIONS REQUIRE THAT
+REMARK     285 CRYST1 RECORD IS INCLUDED, BUT THE VALUES ON
+REMARK     285 THIS RECORD ARE MEANINGLESS.
+ATOM      1  B   UNK X   1      14.052   5.738  -4.320  1.00  0.00              
+ATOM      2  B   UNK X   1      15.034   9.741  -5.724  1.00  0.00              
+ATOM      3  B   UNK X   1       7.233   6.048  -2.460  1.00  0.00              
+ATOM      4  A   UNK X   1      15.145   6.319  -6.071  1.00  0.00              
+ATOM      5  D   UNK X   1      11.830   8.916   1.694  1.00  0.00              
+ATOM      6  C   UNK X   1      12.470   6.576  -5.744  1.00  0.00              
+ATOM      7  C   UNK X   1      16.017   5.863  -4.014  1.00  0.00              
+ATOM      8  A   UNK X   1      16.242   9.550  -2.142  1.00  0.00              
+ATOM      9  B   UNK X   1      10.236   1.293  -5.699  1.00  0.00              
+ATOM     10  C   UNK X   1      14.242   7.807  -0.625  1.00  0.00              
+ATOM     11  B   UNK X   1       6.279   8.646  -3.472  1.00  0.00              
+ATOM     12  D   UNK X   1      10.593   9.415  -2.545  1.00  0.00              
+ATOM     13  C   UNK X   1       8.378   1.671   0.434  1.00  0.00              
+ATOM     14  B   UNK X   1      10.786   6.434  -0.929  1.00  0.00              
+ATOM     15  C   UNK X   1      15.421   5.259  -6.955  1.00  0.00              
+ATOM     16  A   UNK X   1       2.766  -5.116  -1.950  1.00  0.00              
+ATOM     17  D   UNK X   1       5.329  -8.168  11.447  1.00  0.00              
+ATOM     18  B   UNK X   1       7.367   4.960  -0.629  1.00  0.00              
+ATOM     19  B   UNK X   1       0.096   4.057  -1.388  1.00  0.00              
+ATOM     20  D   UNK X   1       8.843   6.062  -2.700  1.00  0.00              
+CONECT    1   11   13   20
+CONECT    2    8   12
+CONECT    3    8
+CONECT    4   14
+CONECT    5    6    7    8    9
+CONECT    6    5   14   15
+CONECT    7    5   10
+CONECT    8    2    3    5   11
+CONECT    9    5   10   13
+CONECT   10    7    9   20
+CONECT   11    1    8   20
+CONECT   12    2
+CONECT   13    1    9   15   20
+CONECT   14    4    6
+CONECT   15    6   13   20
+CONECT   18   20
+CONECT   20    1   10   11   13   15   18
+END
